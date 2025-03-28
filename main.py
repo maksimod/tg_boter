@@ -76,10 +76,14 @@ CHOOSING_LANGUAGE, MAIN_MENU, OPTION_SELECTED = range(3)
 # Languages dictionary - simplified for demo
 LANGUAGES = {
     "ru": "Русский",
+    "uk": "Українська",
     "en": "English",
+    "zh": "中文",
     "es": "Español",
     "fr": "Français",
-    "de": "Deutsch"
+    "ur": "اردو",
+    "hi": "हिन्दी",
+    "ar": "العربية"
 }
 
 # Import translation functionality
@@ -93,7 +97,7 @@ except ImportError as e:
 
 # Base messages in Russian (source language)
 BASE_MESSAGES = {
-    "welcome": "Добро пожаловать! Выберите язык:",
+    "welcome": "Добро пожаловать! Выберите предпочитаемый язык из доступных вариантов:",
     "language_selected": "Вы выбрали язык: {language}.",
     "main_menu": "Главное меню. Выберите опцию:",
     "option1": "Информация",
@@ -101,7 +105,8 @@ BASE_MESSAGES = {
     "option3": "О боте",
     "info_text": "Это информационное сообщение.",
     "help_text": "Это справочное сообщение.",
-    "about_text": "Это бот с поддержкой нескольких языков."
+    "about_text": "Это бот с поддержкой нескольких языков: русский, украинский, английский, китайский, испанский, французский, урду, хинди и арабский.",
+    "error_message": "Произошла ошибка. Пожалуйста, попробуйте снова с помощью команды /start."
 }
 
 async def translate_message(message_key, lang_code):
@@ -158,9 +163,31 @@ async def error_handler(update, context):
     """Error handler"""
     logger.error(f"Update {update} caused error: {context.error}", exc_info=True)
     if update and update.effective_chat:
-        await update.effective_chat.send_message(
-            "Sorry, an error occurred. Please try again with /start."
-        )
+        try:
+            # Try to get user's language if available
+            lang_code = None
+            if context and hasattr(context, 'user_data') and 'language' in context.user_data:
+                lang_code = context.user_data['language']
+            
+            if lang_code:
+                # We already have the BASE_MESSAGES dictionary with Russian text
+                # So we'll add an error message to it if not exists
+                if "error_message" not in BASE_MESSAGES:
+                    BASE_MESSAGES["error_message"] = "Произошла ошибка. Пожалуйста, попробуйте снова с помощью команды /start."
+                
+                translated_error = await translate_message("error_message", lang_code)
+                await update.effective_chat.send_message(translated_error)
+            else:
+                # Fallback to multilingual message
+                await update.effective_chat.send_message(
+                    "Произошла ошибка / An error occurred / حدث خطأ / एक त्रुटि हुई / ایک خرابی پیش آئی / 发生错误 / Ocurrió un error / Une erreur s'est produite / Сталася помилка. /start"
+                )
+        except Exception as e:
+            logger.error(f"Error in error handler: {e}", exc_info=True)
+            # Last resort plain message
+            await update.effective_chat.send_message(
+                "Sorry, an error occurred. Please try again with /start."
+            )
 
 # Функция для остановки других экземпляров бота
 def kill_other_bot_instances():
@@ -194,8 +221,12 @@ async def start(update: Update, context) -> int:
     logger.info("User triggered /start command")
     
     keyboard = create_language_keyboard()
+    
+    # Multilingual welcome message
+    welcome_message = "Выберите язык / Choose language / اختر لغة / भाषा चुनें / زبان منتخب کریں / 选择语言 / Seleccione idioma / Choisissez la langue / Виберіть мову"
+    
     await update.message.reply_text(
-        "Welcome! Please select a language:",
+        welcome_message,
         reply_markup=keyboard
     )
     
