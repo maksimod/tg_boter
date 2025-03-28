@@ -47,6 +47,9 @@ LANGUAGE_CODES = {
     "Португальский": "pt"
 }
 
+# Импортируем функции для работы с БД
+from base.database import get_translation_from_db, save_translation_to_db
+
 async def translate_with_translate(text: str, target_language: str) -> Optional[str]:
     """
     Выполняет перевод с помощью библиотеки translate
@@ -78,16 +81,20 @@ async def translate_with_translate(text: str, target_language: str) -> Optional[
 async def translate_any_message(
     message: str, 
     target_language: str,
-    source_language: str = "Russian"
+    source_language: str = "Russian",
+    on_translate_start=None,
+    on_translate_end=None
 ) -> Optional[str]:
     """
     Переводит сообщение с языка source_language на язык target_language,
-    используя API ChatGPT (модель gpt-3.5-turbo-0125).
+    используя сначала кеш в БД, затем API ChatGPT или библиотеку translate.
     
     Args:
         message: Текст для перевода
         target_language: Язык, на который нужно перевести сообщение
         source_language: Исходный язык сообщения (по умолчанию русский)
+        on_translate_start: Опциональный колбэк, вызываемый перед началом перевода
+        on_translate_end: Опциональный колбэк, вызываемый после завершения перевода
         
     Returns:
         str: Переведенное сообщение или None в случае ошибки
@@ -102,6 +109,19 @@ async def translate_any_message(
         return message
         
     logging.info(f"Начинаем перевод на язык: {target_language}")
+    
+    # Сначала проверяем наличие перевода в базе данных
+    cached_translation = await get_translation_from_db(message, target_language)
+    if cached_translation:
+        logging.info(f"Найден перевод в базе данных, используем его")
+        return cached_translation
+    
+    # Уведомляем о начале перевода, если предоставлен callback
+    if on_translate_start:
+        await on_translate_start()
+    
+    # Пробуем перевести с помощью доступных методов
+    translated_text = None
     
     # Сначала пробуем OpenAI, если есть ключ API
     if OPENAI_API_KEY:
@@ -143,7 +163,6 @@ async def translate_any_message(
                         response_data = await response.json()
                         translated_text = response_data["choices"][0]["message"]["content"].strip()
                         logging.info(f"Перевод через OpenAI выполнен успешно")
-                        return translated_text
                     
         except aiohttp.ClientError as e:
             logging.error(f"Ошибка сети при обращении к API OpenAI: {str(e)}")
@@ -155,12 +174,21 @@ async def translate_any_message(
         logging.warning("OPENAI_API_KEY не задан, пропускаем перевод через OpenAI")
     
     # Если OpenAI не сработал (ошибка или нет ключа), используем translate
-    logging.info("Используем запасной вариант для перевода: translate")
-    result = await translate_with_translate(message, target_language)
-    
-    if result:
-        return result
+    if not translated_text:
+        logging.info("Используем запасной вариант для перевода: translate")
+        translated_text = await translate_with_translate(message, target_language)
     
     # Если все методы перевода не сработали, возвращаем исходный текст
-    logging.warning("Все методы перевода не сработали, возвращаем исходный текст")
-    return message 
+    if not translated_text:
+        logging.warning("Все методы перевода не сработали, возвращаем исходный текст")
+        translated_text = message
+    
+    # Уведомляем о завершении перевода, если предоставлен callback
+    if on_translate_end:
+        await on_translate_end()
+    
+    # Сохраняем перевод в базу данных (только если он не равен исходному тексту)
+    if translated_text != message:
+        await save_translation_to_db(message, translated_text, source_language, target_language)
+    
+    return translated_text 

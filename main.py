@@ -119,7 +119,13 @@ async def translate_message(message_key, lang_code):
     target_language = LANGUAGES.get(lang_code, "English")
     
     try:
-        translated_text = await translate_any_message(source_text, target_language)
+        translated_text = await translate_any_message(
+            source_text, 
+            target_language,
+            source_language="Russian",
+            on_translate_start=None,
+            on_translate_end=None
+        )
         return translated_text
     except Exception as e:
         logger.error(f"Translation error for key '{message_key}': {str(e)}")
