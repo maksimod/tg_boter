@@ -823,6 +823,119 @@ async def setup_db():
     """Инициализирует базу данных"""
     return await init_postgres()
 
+# Удаление пользователя и всех его сообщений из БД
+async def delete_user_data(user_id):
+    """Удаляет пользователя и все его сообщения из базы данных"""
+    if not db_initialized:
+        print("PostgreSQL не инициализирован")
+        return False
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            async with db_lock:
+                # Создаем новое соединение
+                connection = await get_db_connection()
+                if connection is None:
+                    if attempt < max_retries - 1:
+                        print("Не удалось создать соединение, пробуем снова...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        print("Не удалось создать соединение после всех попыток")
+                        return False
+                
+                # Находим ID пользователя в БД
+                db_user_id = await connection.fetchval(
+                    f"SELECT id FROM {BOT_PREFIX}users WHERE user_id = $1",
+                    user_id
+                )
+                
+                if not db_user_id:
+                    print(f"Пользователь {user_id} не найден в БД")
+                    return False
+                
+                # Начинаем транзакцию для последовательного удаления
+                async with connection.transaction():
+                    # Удаляем все сообщения пользователя
+                    await connection.execute(
+                        f"DELETE FROM {BOT_PREFIX}messages WHERE user_id = $1",
+                        db_user_id
+                    )
+                    
+                    print(f"Удалены все сообщения пользователя {user_id}")
+                    
+                    # Удаляем самого пользователя
+                    await connection.execute(
+                        f"DELETE FROM {BOT_PREFIX}users WHERE id = $1",
+                        db_user_id
+                    )
+                    
+                    print(f"Пользователь {user_id} удален из БД")
+                
+                return True
+                
+        except Exception as e:
+            print(f"Ошибка при удалении пользователя (попытка {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)
+            else:
+                return False
+        finally:
+            # Закрываем соединение в любом случае
+            if connection:
+                await connection.close()
+    
+    return False
+
+# Обработчик ошибок
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обрабатывает ошибки телеграм API"""
+    try:
+        if update.effective_user:
+            user_id = update.effective_user.id
+            error = context.error
+            error_str = str(error).lower()
+            
+            # Проверяем, заблокировал ли пользователь бота
+            if 'forbidden' in error_str or 'bot was blocked' in error_str or 'chat not found' in error_str:
+                print(f"Пользователь {user_id} заблокировал бота. Удаляем его данные из БД.")
+                await delete_user_data(user_id)
+                
+                # Удаляем пользовательские данные из контекста
+                if hasattr(context, 'user_data'):
+                    context.user_data.clear()
+            
+            # Логируем ошибку
+            logging.error(f"Ошибка для пользователя {user_id}: {error}")
+        else:
+            logging.error(f"Произошла ошибка: {context.error}")
+    except Exception as e:
+        logging.error(f"Ошибка в обработчике ошибок: {e}")
+
+# Обработчик команды /reload_bot
+async def reload_bot_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Перезапускает бота для пользователя, начиная с выбора языка"""
+    global current_update, current_context
+    current_update = update
+    current_context = context
+    
+    user = update.effective_user
+    
+    # Очищаем данные о пользователе в контексте
+    if 'language' in context.user_data:
+        del context.user_data['language']
+    
+    # Приветственное сообщение
+    await update.message.reply_text(
+        "OK"
+    )
+    
+    # Показываем выбор языка
+    await show_language_selection()
+
 # Функция для запуска бота
 def run_bot(token=None):
     """Запускает бота с заданным токеном"""
@@ -852,8 +965,12 @@ def run_bot(token=None):
     
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("reload_bot", reload_bot_command))  # Новый обработчик
     application.add_handler(CallbackQueryHandler(button_callback))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    
+    # Добавление обработчика ошибок
+    application.add_error_handler(error_handler)
     
     # Запуск бота - НЕ используем await, так как этот метод сам запускает свой цикл событий
     print(f"Бот запущен! Нажмите Ctrl+C для остановки.")
@@ -861,33 +978,6 @@ def run_bot(token=None):
 
 # Пример использования
 if __name__ == "__main__":
-    @on_start
-    async def handle_start():
-        await write_translated_message("Привет! Выберите цвет:")
-        await button([
-            ["Зеленый", "callback_green"],
-            ["Красный", "callback_red"],
-            [["Белый", "callback_white"], ["Черный", "callback_black"]]
-        ])
-    
-    @on_callback("callback_green")
-    async def handle_green():
-        await write_translated_message("Вы выбрали зеленый цвет!")
-    
-    # Настройка логирования
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
-    )
-    
-    # Проверяем наличие токена бота
-    if not load_token():
-        print("ОШИБКА: Токен бота не задан!")
-        print("Опции:")
-        print("1. Вставьте токен в файл credentials/telegram/token.txt")
-        print("2. Создайте модуль credentials/telegram/config.py с переменной BOT_TOKEN")
-        exit(1)
-    
     # Инициализируем базу данных перед запуском бота
     async def init_db():
         db_initialized = await setup_db()
