@@ -1365,3 +1365,17 @@ telegram.error.Conflict: Conflict: terminated by other getUpdates request; make 
 2025-03-28 12:39:39,403 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot7557691355:AAFomvlkd0tU-r3IFn23KQjcv4k3qKwRk3o/getUpdates "HTTP/1.1 200 OK"
 2025-03-28 12:39:39,403 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
 2025-03-28 12:39:39,404 - telegram.ext.Application - INFO - Application.stop() complete
+2025-03-28 17:24:50,940 - root - WARNING - OPENAI_API_KEY не задан, пропускаем перевод через OpenAI
+2025-03-28 17:24:58,183 - root - WARNING - OPENAI_API_KEY не задан, пропускаем перевод через OpenAI
+2025-03-28 17:25:01,106 - root - WARNING - OPENAI_API_KEY не задан, пропускаем перевод через OpenAI
+2025-03-28 17:43:05,763 - asyncio - ERROR - Fatal error on SSL transport
+protocol: <asyncio.sslproto.SSLProtocol object at 0x000000000527BAC0>
+transport: <_ProactorSocketTransport fd=708 read=<_OverlappedFuture cancelled>>
+Traceback (most recent call last):
+  File "C:\Users\Maksim\AppData\Local\Programs\Python\Python310\lib\asyncio\sslproto.py", line 690, in _process_write_backlog
+    self._transport.write(chunk)
+  File "C:\Users\Maksim\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 365, in write
+    self._loop_writing(data=bytes(data))
+  File "C:\Users\Maksim\AppData\Local\Programs\Python\Python310\lib\asyncio\proactor_events.py", line 401, in _loop_writing
+    self._write_fut = self._loop._proactor.send(self._sock, data)
+AttributeError: 'NoneType' object has no attribute 'send'
