@@ -1,7 +1,9 @@
 import logging
 import os
+import asyncio
+from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 # Импортируем функцию перевода
 try:
@@ -11,6 +13,25 @@ except ImportError as e:
     print(f"Error importing translation module: {e}")
     translate_any_message = None
 
+# Импортируем PostgreSQL
+try:
+    import asyncpg
+    import asyncio
+    from asyncio import Lock
+    print("PostgreSQL module imported successfully")
+except ImportError as e:
+    print(f"Error importing PostgreSQL module: {e}")
+    print("Installing asyncpg...")
+    os.system("pip install asyncpg")
+    try:
+        import asyncpg
+        import asyncio
+        from asyncio import Lock
+        print("PostgreSQL module installed successfully")
+    except ImportError:
+        print("Failed to install asyncpg. Please install it manually: pip install asyncpg")
+        asyncpg = None
+
 # Настройки бота
 BOT_TOKEN = ""  # Будет загружен из файла конфигурации
 TIMEOUT = 30
@@ -19,6 +40,16 @@ TIMEOUT = 30
 callbacks = {}
 current_update = None
 current_context = None
+
+# PostgreSQL настройки
+DB_HOST = None
+DB_PORT = None
+DB_NAME = None
+DB_USER = None 
+DB_PASSWORD = None
+BOT_PREFIX = "tgbot_"  # Префикс по умолчанию
+db_lock = Lock()  # Блокировка для DB-операций
+db_initialized = False  # Флаг инициализации БД
 
 # Настройки языков
 LANGUAGES = {
@@ -87,6 +118,399 @@ def load_token():
     
     return False
 
+# Загрузка настроек PostgreSQL
+def load_postgres_config():
+    """Загружает настройки подключения к PostgreSQL из файла конфигурации"""
+    global BOT_PREFIX, DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+    
+    try:
+        # Проверяем наличие папки credentials/postgres
+        if os.path.exists("credentials/postgres"):
+            try:
+                from credentials.postgres.config import (
+                    HOST, DATABASE, USER, PASSWORD, PORT, BOT_PREFIX as PREFIX
+                )
+                DB_HOST = HOST
+                DB_PORT = PORT
+                DB_NAME = DATABASE
+                DB_USER = USER
+                DB_PASSWORD = PASSWORD
+                BOT_PREFIX = PREFIX if PREFIX else BOT_PREFIX
+                print(f"Настройки PostgreSQL загружены из config.py. BOT_PREFIX: {BOT_PREFIX}")
+                return True
+            except ImportError:
+                print("Не удалось загрузить настройки PostgreSQL из модуля")
+            except Exception as e:
+                print(f"Ошибка при загрузке настроек PostgreSQL: {e}")
+                
+    except Exception as e:
+        print(f"Ошибка при загрузке настроек PostgreSQL: {e}")
+    
+    print("Не удалось загрузить настройки PostgreSQL")
+    return False
+
+# Функция для создания нового соединения с БД
+async def get_db_connection():
+    """Создает новое соединение с базой данных"""
+    if asyncpg is None:
+        print("PostgreSQL не доступен - модуль asyncpg не установлен")
+        return None
+    
+    if None in (DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD):
+        print("Настройки PostgreSQL не загружены")
+        return None
+        
+    try:
+        # Создаем новое соединение для каждой операции
+        connection = await asyncpg.connect(
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
+            timeout=10.0,
+            command_timeout=10.0,
+            ssl=False
+        )
+        return connection
+    except Exception as e:
+        print(f"Ошибка при создании соединения с БД: {e}")
+        return None
+
+# Инициализация PostgreSQL
+async def init_postgres():
+    """Инициализирует соединение с PostgreSQL и создает таблицы"""
+    global db_initialized
+    
+    if asyncpg is None:
+        print("PostgreSQL не доступен - модуль asyncpg не установлен")
+        return False
+    
+    # Загружаем конфигурацию
+    if not load_postgres_config():
+        print("Не удалось загрузить настройки PostgreSQL")
+        return False
+    
+    try:
+        print(f"Подключение к PostgreSQL: {DB_HOST}:{DB_PORT}, DB: {DB_NAME}, User: {DB_USER}")
+        
+        # Проверяем соединение
+        connection = await get_db_connection()
+        if connection is None:
+            print("Не удалось создать соединение с PostgreSQL")
+            return False
+            
+        try:
+            # Проверяем соединение
+            await connection.execute("SELECT 1")
+            print("Соединение с PostgreSQL успешно установлено")
+            
+            # Создаем таблицы
+            db_initialized = await create_tables(connection)
+            
+            return db_initialized
+        finally:
+            # Закрываем соединение в любом случае
+            await connection.close()
+            
+    except Exception as e:
+        print(f"Ошибка при инициализации PostgreSQL: {e}")
+        return False
+
+# Создание таблиц
+async def create_tables(connection=None):
+    """Создает необходимые таблицы в базе данных"""
+    if asyncpg is None:
+        print("PostgreSQL не доступен - модуль asyncpg не установлен")
+        return False
+    
+    # Если соединение не передано, создаем новое
+    close_conn = False
+    if connection is None:
+        connection = await get_db_connection()
+        close_conn = True
+        
+    if connection is None:
+        print("Не удалось создать соединение с PostgreSQL")
+        return False
+    
+    try:
+        # Таблица пользователей
+        await connection.execute(f'''
+            CREATE TABLE IF NOT EXISTS {BOT_PREFIX}users (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                username TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id)
+            )
+        ''')
+        
+        # Таблица сообщений
+        await connection.execute(f'''
+            CREATE TABLE IF NOT EXISTS {BOT_PREFIX}messages (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER REFERENCES {BOT_PREFIX}users(id),
+                message_text TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Таблица переводов
+        await connection.execute(f'''
+            CREATE TABLE IF NOT EXISTS {BOT_PREFIX}translations (
+                id SERIAL PRIMARY KEY,
+                source_text TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                source_language VARCHAR(50) NOT NULL,
+                target_language VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source_text, target_language)
+            )
+        ''')
+        
+        print(f"Таблицы с префиксом '{BOT_PREFIX}' созданы")
+        
+        return True
+    except Exception as e:
+        print(f"Ошибка при создании таблиц: {e}")
+        return False
+    finally:
+        # Если мы создали соединение внутри этой функции, закрываем его
+        if close_conn and connection is not None:
+            await connection.close()
+
+# Добавление пользователя в БД
+async def add_user_to_db(user_id, chat_id, username):
+    """Добавляет пользователя в базу данных"""
+    if not db_initialized:
+        print("PostgreSQL не инициализирован")
+        return None
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            async with db_lock:
+                # Создаем новое соединение
+                connection = await get_db_connection()
+                if connection is None:
+                    if attempt < max_retries - 1:
+                        print("Не удалось создать соединение, пробуем снова...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        print("Не удалось создать соединение после всех попыток")
+                        return None
+                
+                # Проверяем, существует ли пользователь
+                user = await connection.fetchrow(
+                    f"SELECT id FROM {BOT_PREFIX}users WHERE user_id = $1",
+                    user_id
+                )
+                
+                if user:
+                    print(f"Пользователь {user_id} уже существует в БД")
+                    return user['id']
+                
+                # Добавляем нового пользователя
+                user_id_in_db = await connection.fetchval(
+                    f'''
+                    INSERT INTO {BOT_PREFIX}users (user_id, chat_id, username)
+                    VALUES ($1, $2, $3)
+                    RETURNING id
+                    ''',
+                    user_id, chat_id, username
+                )
+                
+                print(f"Добавлен новый пользователь: {username} (ID: {user_id})")
+                return user_id_in_db
+                
+        except Exception as e:
+            print(f"Ошибка при добавлении пользователя (попытка {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)
+            else:
+                return None
+        finally:
+            # Закрываем соединение в любом случае
+            if connection:
+                await connection.close()
+    
+    return None
+
+# Добавление сообщения в БД
+async def add_message_to_db(user_db_id, message_text):
+    """Добавляет сообщение в базу данных"""
+    if not db_initialized:
+        print("PostgreSQL не инициализирован")
+        return False
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            async with db_lock:
+                # Создаем новое соединение
+                connection = await get_db_connection()
+                if connection is None:
+                    if attempt < max_retries - 1:
+                        print("Не удалось создать соединение, пробуем снова...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        print("Не удалось создать соединение после всех попыток")
+                        return False
+                
+                await connection.execute(
+                    f'''
+                    INSERT INTO {BOT_PREFIX}messages (user_id, message_text)
+                    VALUES ($1, $2)
+                    ''',
+                    user_db_id, message_text
+                )
+                
+                return True
+                
+        except Exception as e:
+            print(f"Ошибка при добавлении сообщения (попытка {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)
+            else:
+                return False
+        finally:
+            # Закрываем соединение в любом случае
+            if connection:
+                await connection.close()
+    
+    return False
+
+# Получение перевода из БД
+async def get_translation_from_db(source_text, target_language):
+    """Получает перевод из базы данных"""
+    if not db_initialized:
+        print("PostgreSQL не инициализирован")
+        return None
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            async with db_lock:
+                # Создаем новое соединение
+                connection = await get_db_connection()
+                if connection is None:
+                    if attempt < max_retries - 1:
+                        print("Не удалось создать соединение, пробуем снова...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        print("Не удалось создать соединение после всех попыток")
+                        return None
+                
+                result = await connection.fetchrow(
+                    f'''
+                    SELECT translated_text
+                    FROM {BOT_PREFIX}translations
+                    WHERE source_text = $1 AND target_language = $2
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    ''',
+                    source_text, target_language
+                )
+                
+                if result:
+                    return result['translated_text']
+                else:
+                    return None
+                
+        except Exception as e:
+            print(f"Ошибка при получении перевода (попытка {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)
+            else:
+                return None
+        finally:
+            # Закрываем соединение в любом случае
+            if connection:
+                await connection.close()
+    
+    return None
+
+# Сохранение перевода в БД
+async def save_translation_to_db(source_text, translated_text, source_language, target_language):
+    """Сохраняет перевод в базу данных"""
+    if not db_initialized:
+        print("PostgreSQL не инициализирован")
+        return False
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        connection = None
+        try:
+            async with db_lock:
+                # Создаем новое соединение
+                connection = await get_db_connection()
+                if connection is None:
+                    if attempt < max_retries - 1:
+                        print("Не удалось создать соединение, пробуем снова...")
+                        await asyncio.sleep(1)
+                        continue
+                    else:
+                        print("Не удалось создать соединение после всех попыток")
+                        return False
+                
+                # Проверяем, существует ли уже такой перевод
+                existing = await connection.fetchval(
+                    f'''
+                    SELECT COUNT(*)
+                    FROM {BOT_PREFIX}translations
+                    WHERE source_text = $1 AND target_language = $2
+                    ''',
+                    source_text, target_language
+                )
+                
+                if existing > 0:
+                    # Обновляем существующий перевод
+                    await connection.execute(
+                        f'''
+                        UPDATE {BOT_PREFIX}translations
+                        SET translated_text = $1, created_at = CURRENT_TIMESTAMP
+                        WHERE source_text = $2 AND target_language = $3
+                        ''',
+                        translated_text, source_text, target_language
+                    )
+                else:
+                    # Добавляем новый перевод
+                    await connection.execute(
+                        f'''
+                        INSERT INTO {BOT_PREFIX}translations 
+                        (source_text, translated_text, source_language, target_language)
+                        VALUES ($1, $2, $3, $4)
+                        ''',
+                        source_text, translated_text, source_language, target_language
+                    )
+                
+                return True
+                
+        except Exception as e:
+            print(f"Ошибка при сохранении перевода (попытка {attempt+1}/{max_retries}): {e}")
+            if attempt < max_retries - 1:
+                print("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)
+            else:
+                return False
+        finally:
+            # Закрываем соединение в любом случае
+            if connection:
+                await connection.close()
+    
+    return False
+
 # Функция для отправки сообщения
 async def write_message(text):
     """Простая функция для отправки сообщения"""
@@ -109,19 +533,65 @@ async def translate(text, target_lang=None):
     if target_lang == "ru" or not translate_any_message:
         return text
     
-    try:
-        # Используем функцию перевода из старого бота
-        translated_text = await translate_any_message(
-            text,
-            target_language,
-            source_language="Russian",
-            on_translate_start=None,
-            on_translate_end=None
-        )
-        return translated_text
-    except Exception as e:
-        logging.error(f"Ошибка при переводе: {e}")
-        return text
+    # Максимальное количество попыток для перевода
+    max_retries = 3
+    
+    # Для коротких текстов не используем кэширование
+    use_cache = len(text) > 10
+    
+    for attempt in range(max_retries):
+        try:
+            # Проверяем кэш переводов в БД
+            cached_translation = None
+            if use_cache and db_initialized:
+                try:
+                    cached_translation = await get_translation_from_db(text, target_language)
+                except Exception as cache_error:
+                    logging.warning(f"Ошибка при получении кэша перевода: {cache_error}")
+            
+            if cached_translation:
+                logging.info(f"Используем кэшированный перевод для: {text[:20]}...")
+                return cached_translation
+            
+            # Используем функцию перевода из старого бота
+            try:
+                translated_text = await translate_any_message(
+                    text,
+                    target_language,
+                    source_language="Russian",
+                    on_translate_start=None,
+                    on_translate_end=None
+                )
+                
+                # Сохраняем перевод в БД, если успешно
+                if translated_text and translated_text != text and use_cache and db_initialized:
+                    try:
+                        await save_translation_to_db(text, translated_text, "Russian", target_language)
+                    except Exception as save_error:
+                        # Ошибка при сохранении не должна прерывать работу бота
+                        logging.error(f"Ошибка при сохранении перевода в БД: {save_error}")
+                
+                return translated_text
+            except Exception as translate_error:
+                logging.error(f"Ошибка при переводе (попытка {attempt+1}/{max_retries}): {translate_error}")
+                if attempt < max_retries - 1:
+                    logging.info("Повторная попытка перевода через 1 секунду...")
+                    await asyncio.sleep(1)  # Пауза перед повторной попыткой
+                else:
+                    logging.error("Все попытки перевода исчерпаны, возвращаем исходный текст")
+                    return text
+                
+        except Exception as general_error:
+            logging.error(f"Общая ошибка при переводе (попытка {attempt+1}/{max_retries}): {general_error}")
+            if attempt < max_retries - 1:
+                logging.info("Повторная попытка через 1 секунду...")
+                await asyncio.sleep(1)  # Пауза перед повторной попыткой
+            else:
+                # В случае ошибки возвращаем исходный текст
+                return text
+    
+    # В случае всех неудачных попыток возвращаем исходный текст
+    return text
 
 # Функция для отправки переведенного сообщения
 async def write_translated_message(text):
@@ -245,6 +715,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_update = update
     current_context = context
     
+    # Добавляем пользователя в БД
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+    user_db_id = await add_user_to_db(user.id, chat_id, user.username)
+    
+    # Сохраняем id пользователя в БД в контексте
+    if user_db_id:
+        context.user_data['db_user_id'] = user_db_id
+    
     # Если у пользователя нет выбранного языка, показываем выбор языка
     if 'language' not in context.user_data:
         await show_language_selection()
@@ -255,6 +734,38 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await callbacks['start']()
     else:
         await write_translated_message("Привет! Я бот. Используйте /help для помощи.")
+
+# Обработчик обычных сообщений
+async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    global current_update, current_context
+    current_update = update
+    current_context = context
+    
+    # Получаем id пользователя в БД
+    user_db_id = context.user_data.get('db_user_id')
+    
+    # Если пользователь еще не в БД, добавляем его
+    if not user_db_id:
+        user = update.effective_user
+        chat_id = update.effective_chat.id
+        user_db_id = await add_user_to_db(user.id, chat_id, user.username)
+        context.user_data['db_user_id'] = user_db_id
+    
+    # Сохраняем сообщение в БД
+    if user_db_id:
+        await add_message_to_db(user_db_id, update.message.text)
+    
+    # Если у пользователя нет выбранного языка, показываем выбор языка
+    if 'language' not in context.user_data:
+        await show_language_selection()
+        return
+    
+    # Если есть обработчик для текстовых сообщений, вызываем его
+    if 'text_message' in callbacks:
+        await callbacks['text_message'](update.message.text)
+    else:
+        # По умолчанию просто отвечаем эхом
+        await write_translated_message(f"Вы написали: {update.message.text}")
 
 # Обработчик callback запросов
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -301,6 +812,17 @@ def on_callback(callback_data):
         return func
     return decorator
 
+# Функция для регистрации обработчика текстовых сообщений
+def on_text_message(func):
+    """Регистрирует функцию как обработчик текстовых сообщений"""
+    callbacks['text_message'] = func
+    return func
+
+# Функция для инициализации БД
+async def setup_db():
+    """Инициализирует базу данных"""
+    return await init_postgres()
+
 # Функция для запуска бота
 def run_bot(token=None):
     """Запускает бота с заданным токеном"""
@@ -331,8 +853,9 @@ def run_bot(token=None):
     # Добавление обработчиков
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
     
-    # Запуск бота
+    # Запуск бота - НЕ используем await, так как этот метод сам запускает свой цикл событий
     print(f"Бот запущен! Нажмите Ctrl+C для остановки.")
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
@@ -351,4 +874,45 @@ if __name__ == "__main__":
     async def handle_green():
         await write_translated_message("Вы выбрали зеленый цвет!")
     
-    run_bot() 
+    # Настройка логирования
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    
+    # Проверяем наличие токена бота
+    if not load_token():
+        print("ОШИБКА: Токен бота не задан!")
+        print("Опции:")
+        print("1. Вставьте токен в файл credentials/telegram/token.txt")
+        print("2. Создайте модуль credentials/telegram/config.py с переменной BOT_TOKEN")
+        exit(1)
+    
+    # Инициализируем базу данных перед запуском бота
+    async def init_db():
+        db_initialized = await setup_db()
+        print(f"База данных инициализирована: {db_initialized}")
+        return db_initialized
+    
+    try:
+        # Запускаем инициализацию БД в отдельном цикле событий
+        db_successful = asyncio.run(init_db())
+        
+        # Проверяем, успешно ли инициализирована БД
+        if not db_successful:
+            print("ОШИБКА: Не удалось подключиться к базе данных!")
+            print("Бот не может работать без подключения к PostgreSQL.")
+            print("Проверьте настройки в credentials/postgres/config.py")
+            exit(1)  # Выходим с кодом ошибки
+        
+        # Создаем новый цикл событий перед запуском бота
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        
+        # Запускаем бота (не в асинхронном контексте)
+        run_bot()
+    except KeyboardInterrupt:
+        print("Бот остановлен пользователем")
+    except Exception as e:
+        print(f"Ошибка при запуске бота: {e}")
+        import traceback
+        traceback.print_exc() 
