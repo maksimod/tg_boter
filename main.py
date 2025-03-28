@@ -82,64 +82,43 @@ LANGUAGES = {
     "de": "Deutsch"
 }
 
-# Messages dictionary - translations for simple bot messages
-MESSAGES = {
-    "ru": {
-        "welcome": "Добро пожаловать! Выберите язык:",
-        "language_selected": "Вы выбрали русский язык.",
-        "main_menu": "Главное меню. Выберите опцию:",
-        "option1": "Информация",
-        "option2": "Помощь",
-        "option3": "О боте",
-        "info_text": "Это информационное сообщение на русском языке.",
-        "help_text": "Это справочное сообщение на русском языке.",
-        "about_text": "Это бот с поддержкой нескольких языков."
-    },
-    "en": {
-        "welcome": "Welcome! Please select a language:",
-        "language_selected": "You have selected English.",
-        "main_menu": "Main menu. Choose an option:",
-        "option1": "Information",
-        "option2": "Help",
-        "option3": "About",
-        "info_text": "This is information message in English.",
-        "help_text": "This is help message in English.",
-        "about_text": "This is a multi-language bot."
-    },
-    "es": {
-        "welcome": "¡Bienvenido! Seleccione un idioma:",
-        "language_selected": "Has seleccionado español.",
-        "main_menu": "Menú principal. Elige una opción:",
-        "option1": "Información",
-        "option2": "Ayuda",
-        "option3": "Acerca de",
-        "info_text": "Este es un mensaje informativo en español.",
-        "help_text": "Este es un mensaje de ayuda en español.",
-        "about_text": "Este es un bot multilingüe."
-    },
-    "fr": {
-        "welcome": "Bienvenue! Veuillez sélectionner une langue:",
-        "language_selected": "Vous avez sélectionné le français.",
-        "main_menu": "Menu principal. Choisissez une option:",
-        "option1": "Information",
-        "option2": "Aide",
-        "option3": "À propos",
-        "info_text": "Ceci est un message d'information en français.",
-        "help_text": "Ceci est un message d'aide en français.",
-        "about_text": "C'est un bot multilingue."
-    },
-    "de": {
-        "welcome": "Willkommen! Bitte wählen Sie eine Sprache:",
-        "language_selected": "Sie haben Deutsch ausgewählt.",
-        "main_menu": "Hauptmenü. Wählen Sie eine Option:",
-        "option1": "Information",
-        "option2": "Hilfe",
-        "option3": "Über",
-        "info_text": "Dies ist eine Informationsnachricht auf Deutsch.",
-        "help_text": "Dies ist eine Hilfenachricht auf Deutsch.",
-        "about_text": "Dies ist ein mehrsprachiger Bot."
-    }
+# Import translation functionality
+try:
+    from language.translate_any_message import translate_any_message
+    print("Translation module imported successfully")
+except ImportError as e:
+    print(f"Error importing translation module: {e}")
+    traceback.print_exc()
+    sys.exit(1)
+
+# Base messages in Russian (source language)
+BASE_MESSAGES = {
+    "welcome": "Добро пожаловать! Выберите язык:",
+    "language_selected": "Вы выбрали язык: {language}.",
+    "main_menu": "Главное меню. Выберите опцию:",
+    "option1": "Информация",
+    "option2": "Помощь",
+    "option3": "О боте",
+    "info_text": "Это информационное сообщение.",
+    "help_text": "Это справочное сообщение.",
+    "about_text": "Это бот с поддержкой нескольких языков."
 }
+
+async def translate_message(message_key, lang_code):
+    """Translate a message from BASE_MESSAGES to the target language"""
+    if message_key not in BASE_MESSAGES:
+        logger.warning(f"Message key '{message_key}' not found in BASE_MESSAGES")
+        return f"[Missing message: {message_key}]"
+    
+    source_text = BASE_MESSAGES[message_key]
+    target_language = LANGUAGES.get(lang_code, "English")
+    
+    try:
+        translated_text = await translate_any_message(source_text, target_language)
+        return translated_text
+    except Exception as e:
+        logger.error(f"Translation error for key '{message_key}': {str(e)}")
+        return source_text
 
 def create_language_keyboard():
     """Create language selection keyboard"""
@@ -157,17 +136,19 @@ def create_language_keyboard():
     
     return InlineKeyboardMarkup(keyboard)
 
-def create_main_menu_keyboard(lang_code):
+async def create_main_menu_keyboard(lang_code):
     """Create main menu keyboard for selected language"""
-    messages = MESSAGES.get(lang_code, MESSAGES["en"])
+    option1 = await translate_message("option1", lang_code)
+    option2 = await translate_message("option2", lang_code)
+    option3 = await translate_message("option3", lang_code)
     
     keyboard = [
         [
-            InlineKeyboardButton(messages["option1"], callback_data="option_info"),
-            InlineKeyboardButton(messages["option2"], callback_data="option_help")
+            InlineKeyboardButton(option1, callback_data="option_info"),
+            InlineKeyboardButton(option2, callback_data="option_help")
         ],
         [
-            InlineKeyboardButton(messages["option3"], callback_data="option_about")
+            InlineKeyboardButton(option3, callback_data="option_about")
         ]
     ]
     
@@ -229,11 +210,13 @@ async def language_selected(update: Update, context) -> int:
     lang_code = query.data.replace("lang_", "")
     context.user_data["language"] = lang_code
     
-    # Get messages for selected language
-    messages = MESSAGES.get(lang_code, MESSAGES["en"])
+    # Get translated message for selected language
+    language_name = LANGUAGES.get(lang_code, "Unknown")
+    language_selected_text = await translate_message("language_selected", lang_code)
+    language_selected_text = language_selected_text.format(language=language_name)
     
     await query.edit_message_text(
-        text=messages["language_selected"]
+        text=language_selected_text
     )
     
     # Show main menu
@@ -243,20 +226,20 @@ async def language_selected(update: Update, context) -> int:
 async def show_main_menu(update: Update, context) -> int:
     """Show main menu for selected language"""
     lang_code = context.user_data.get("language", "en")
-    messages = MESSAGES.get(lang_code, MESSAGES["en"])
+    main_menu_text = await translate_message("main_menu", lang_code)
     
-    keyboard = create_main_menu_keyboard(lang_code)
+    keyboard = await create_main_menu_keyboard(lang_code)
     
     # Different handling based on whether this is a new message or callback
     if update.callback_query:
         await context.bot.send_message(
             chat_id=update.effective_chat.id,
-            text=messages["main_menu"],
+            text=main_menu_text,
             reply_markup=keyboard
         )
     else:
         await update.message.reply_text(
-            text=messages["main_menu"],
+            text=main_menu_text,
             reply_markup=keyboard
         )
     
@@ -269,25 +252,29 @@ async def handle_option(update: Update, context) -> int:
     
     option = query.data.replace("option_", "")
     lang_code = context.user_data.get("language", "en")
-    messages = MESSAGES.get(lang_code, MESSAGES["en"])
     
-    # Send response based on selected option
+    # Get translated message based on selected option
     if option == "info":
-        message = messages["info_text"]
+        message_key = "info_text"
     elif option == "help":
-        message = messages["help_text"]
+        message_key = "help_text"
     elif option == "about":
-        message = messages["about_text"]
+        message_key = "about_text"
     else:
+        message_key = None
         message = "Option not recognized"
+    
+    if message_key:
+        message = await translate_message(message_key, lang_code)
     
     await query.edit_message_text(text=message)
     
     # Send the main menu again
+    main_menu_text = await translate_message("main_menu", lang_code)
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
-        text=messages["main_menu"],
-        reply_markup=create_main_menu_keyboard(lang_code)
+        text=main_menu_text,
+        reply_markup=await create_main_menu_keyboard(lang_code)
     )
     
     return MAIN_MENU
