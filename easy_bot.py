@@ -8,11 +8,11 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # Экспорт функций
 __all__ = [
     'write_translated_message', 'button', 'message_with_buttons', 
-    'on_start', 'on_callback', 'run_bot', 'get_callback', 'get_user_language',
+    'start', 'callback', 'run_bot', 'get_callback', 'get_user_language',
     'on_text_message', 'translate',
     # Новые авто-функции
     'auto_write_translated_message', 'auto_button', 'auto_message_with_buttons',
-    'on_auto_start', 'on_auto_callback', 'on_auto_text_message', 'auto_translate'
+    'start', 'callback', 'on_auto_text_message', 'auto_translate'
 ]
 
 # Импортируем функцию перевода
@@ -815,7 +815,7 @@ def on_start(func):
     return func
 
 # Функция для регистрации обработчика callback
-def on_callback(callback_data):
+def callback(callback_data):
     """Декоратор для регистрации функции как обработчика callback"""
     def decorator(func):
         callbacks[callback_data] = func
@@ -1075,7 +1075,7 @@ def auto_translate(text, target_lang=None):
     return wrapper
 
 # Модифицируем декораторы для автоматического запуска асинхронных функций
-def on_auto_start(func):
+def start(func):
     """
     Регистрирует функцию как обработчик команды /start
     с автоматическим запуском асинхронных функций
@@ -1090,7 +1090,7 @@ def on_auto_start(func):
     callbacks['start'] = wrapper
     return func
 
-def on_auto_callback(callback_data):
+def callback(callback_data):
     """
     Декоратор для регистрации функции как обработчика callback
     с автоматическим запуском асинхронных функций
