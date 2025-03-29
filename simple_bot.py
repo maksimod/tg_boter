@@ -8,13 +8,8 @@ from easy_bot import (
     get_user_language
 )
 
-# Токен не нужно указывать здесь, он будет загружен из credentials/telegram/config.py
-# или credentials/telegram/token.txt
-BOT_TOKEN = None
-
-# Обработчик команды /start
 @start
-def handle_start():
+def start():
     auto_write_translated_message("Привет! Я простой бот.")
     auto_message_with_buttons("Выберите действие:", [
         ["Информация", "info"],
@@ -22,9 +17,8 @@ def handle_start():
         [["О боте", "about"], ["Выход", "exit"]]
     ])
 
-# Обработчики callback-кнопок
 @callback("info")
-def handle_info():
+def info():
     auto_write_translated_message("Это информационное сообщение.")
     auto_button([
         ["Узнать больше", "info_more"],
@@ -32,7 +26,7 @@ def handle_info():
     ])
 
 @callback("info_more")
-def handle_info_more():
+def info_more():
     # Получаем текущий язык пользователя
     lang = get_user_language()
     auto_write_translated_message(f"Я очень простой бот, но я могу работать на разных языках. Сейчас вы используете язык: {lang}")
@@ -41,27 +35,26 @@ def handle_info_more():
     ])
 
 @callback("help")
-def handle_help():
+def help():
     auto_write_translated_message("Это справочное сообщение. Используйте кнопки для навигации.")
     auto_button([
         ["Вернуться в меню", "back_to_menu"]
     ])
 
 @callback("about")
-def handle_about():
+def about():
     auto_write_translated_message("Это простой бот с удобным интерфейсом и поддержкой нескольких языков.")
     auto_button([
         ["Вернуться в меню", "back_to_menu"]
     ])
 
 @callback("exit")
-def handle_exit():
+def exit():
     auto_write_translated_message("До свидания! Для запуска бота снова используйте /start")
 
 @callback("back_to_menu")
-def handle_back():
-    handle_start()
+def back():
+    start()
 
 # Запуск бота
-if __name__ == "__main__":
-    run_bot(BOT_TOKEN) 
+if __name__ == "__main__":  run_bot() 
