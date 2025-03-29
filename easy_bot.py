@@ -5,6 +5,16 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
+# Экспорт функций
+__all__ = [
+    'write_translated_message', 'button', 'message_with_buttons', 
+    'on_start', 'on_callback', 'run_bot', 'get_callback', 'get_user_language',
+    'on_text_message', 'translate',
+    # Новые авто-функции
+    'auto_write_translated_message', 'auto_button', 'auto_message_with_buttons',
+    'on_auto_start', 'on_auto_callback', 'on_auto_text_message', 'auto_translate'
+]
+
 # Импортируем функцию перевода
 try:
     from language.translate_any_message import translate_any_message
@@ -1005,4 +1015,109 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Ошибка при запуске бота: {e}")
         import traceback
-        traceback.print_exc() 
+        traceback.print_exc()
+
+# Добавляем новые функции-обертки для упрощения использования бота
+def auto_write_translated_message(text):
+    """
+    Синхронная обертка для write_translated_message.
+    Автоматически запускает асинхронную функцию в текущем обработчике.
+    """
+    async def wrapper():
+        await write_translated_message(text)
+    
+    if 'auto_functions' not in current_context.user_data:
+        current_context.user_data['auto_functions'] = []
+    
+    current_context.user_data['auto_functions'].append(wrapper)
+    return wrapper
+
+def auto_button(buttons_layout):
+    """
+    Синхронная обертка для button.
+    Автоматически запускает асинхронную функцию в текущем обработчике.
+    """
+    async def wrapper():
+        await button(buttons_layout)
+    
+    if 'auto_functions' not in current_context.user_data:
+        current_context.user_data['auto_functions'] = []
+    
+    current_context.user_data['auto_functions'].append(wrapper)
+    return wrapper
+
+def auto_message_with_buttons(text, buttons_layout):
+    """
+    Синхронная обертка для message_with_buttons.
+    Автоматически запускает асинхронную функцию в текущем обработчике.
+    """
+    async def wrapper():
+        await message_with_buttons(text, buttons_layout)
+    
+    if 'auto_functions' not in current_context.user_data:
+        current_context.user_data['auto_functions'] = []
+    
+    current_context.user_data['auto_functions'].append(wrapper)
+    return wrapper
+
+def auto_translate(text, target_lang=None):
+    """
+    Синхронная обертка для translate.
+    Автоматически запускает асинхронную функцию и возвращает результат.
+    """
+    async def wrapper():
+        return await translate(text, target_lang)
+    
+    if 'auto_functions' not in current_context.user_data:
+        current_context.user_data['auto_functions'] = []
+    
+    current_context.user_data['auto_functions'].append(wrapper)
+    return wrapper
+
+# Модифицируем декораторы для автоматического запуска асинхронных функций
+def on_auto_start(func):
+    """
+    Регистрирует функцию как обработчик команды /start
+    с автоматическим запуском асинхронных функций
+    """
+    async def wrapper():
+        func()
+        if current_context and 'auto_functions' in current_context.user_data:
+            for f in current_context.user_data['auto_functions']:
+                await f()
+            current_context.user_data['auto_functions'] = []
+
+    callbacks['start'] = wrapper
+    return func
+
+def on_auto_callback(callback_data):
+    """
+    Декоратор для регистрации функции как обработчика callback
+    с автоматическим запуском асинхронных функций
+    """
+    def decorator(func):
+        async def wrapper():
+            func()
+            if current_context and 'auto_functions' in current_context.user_data:
+                for f in current_context.user_data['auto_functions']:
+                    await f()
+                current_context.user_data['auto_functions'] = []
+
+        callbacks[callback_data] = wrapper
+        return func
+    return decorator
+
+def on_auto_text_message(func):
+    """
+    Регистрирует функцию как обработчик текстовых сообщений
+    с автоматическим запуском асинхронных функций
+    """
+    async def wrapper(text):
+        func(text)
+        if current_context and 'auto_functions' in current_context.user_data:
+            for f in current_context.user_data['auto_functions']:
+                await f()
+            current_context.user_data['auto_functions'] = []
+
+    callbacks['text_message'] = wrapper
+    return func 
