@@ -2,6 +2,7 @@ from typing import List, Tuple, Dict, Any, Callable, Union, Optional
 from functools import wraps
 import re
 import asyncio
+from datetime import datetime, timedelta
 
 # Global variables to store survey data
 _surveys = {}
@@ -12,6 +13,36 @@ TYPE_TEXT = "text"
 TYPE_NUMBER = "number"
 TYPE_SYMBOLS = "symbols"
 TYPE_BUTTONS = "buttons"  # Новый тип для кнопок
+TYPE_DATE = "date"        # Тип для даты
+TYPE_DATETIME = "datetime"  # Тип для даты со временем
+TYPE_TIME = "time"        # Тип для времени
+TYPE_PHONE = "phone"      # Тип для телефона
+TYPE_URL = "url"          # Тип для ссылки
+TYPE_CONFIRM = "confirm"  # Тип для подтверждения
+TYPE_NAME = "name"        # Тип для ФИО
+
+# Мультиязычные ключевые слова для дат
+DATE_KEYWORDS = {
+    "сегодня": {"ru": "сегодня", "en": "today", "uk": "сьогодні", "zh": "今天", "es": "hoy", "fr": "aujourd'hui"},
+    "завтра": {"ru": "завтра", "en": "tomorrow", "uk": "завтра", "zh": "明天", "es": "mañana", "fr": "demain"},
+    "вчера": {"ru": "вчера", "en": "yesterday", "uk": "вчора", "zh": "昨天", "es": "ayer", "fr": "hier"}
+}
+
+# Мультиязычные ключевые слова для подтверждений
+CONFIRM_KEYWORDS = {
+    "да": {"ru": ["да", "конечно", "точно", "верно"], 
+           "en": ["yes", "yeah", "sure", "true"], 
+           "uk": ["так", "так-так", "звичайно"], 
+           "zh": ["是的", "对", "当然"], 
+           "es": ["sí", "claro", "por supuesto"], 
+           "fr": ["oui", "bien sûr", "certainement"]},
+    "нет": {"ru": ["нет", "неа", "ни за что"], 
+            "en": ["no", "nope", "false"], 
+            "uk": ["ні", "не"], 
+            "zh": ["不", "不是", "否"], 
+            "es": ["no", "nunca"], 
+            "fr": ["non", "pas"]}
+}
 
 class ValidationError(Exception):
     """Exception raised when survey input validation fails."""
@@ -57,8 +88,215 @@ def validate_input(value: str, validation_type: str, validation_params: Optional
         # Only allow specified symbols
         return value
     
+    elif validation_type == TYPE_DATE:
+        try:
+            # Проверяем на ключевые слова
+            date_value = _parse_date_keywords(value.lower())
+            if date_value:
+                return date_value.strftime("%d.%m.%y")
+            
+            # Проверяем формат даты
+            date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$', value)
+            if not date_match:
+                raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ")
+            
+            day, month, year = map(int, date_match.groups())
+            
+            # Корректируем год если задан двузначным числом
+            if year < 100:
+                year = 2000 + year if year < 50 else 1900 + year
+                
+            # Проверяем валидность даты
+            try:
+                date_value = datetime(year, month, day)
+                return value
+            except ValueError:
+                raise ValidationError("Пожалуйста, введите корректную дату")
+                
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка в формате даты: {e}")
+    
+    elif validation_type == TYPE_DATETIME:
+        try:
+            # Проверяем на ключевые слова
+            parts = value.lower().split()
+            date_part = parts[0]
+            time_part = parts[1] if len(parts) > 1 else "00:00"
+            
+            # Обрабатываем дату
+            date_value = None
+            if _is_date_keyword(date_part):
+                date_value = _parse_date_keywords(date_part)
+            else:
+                # Проверяем формат даты
+                date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$', date_part)
+                if not date_match:
+                    raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ ЧЧ:ММ")
+                
+                day, month, year = map(int, date_match.groups())
+                
+                # Корректируем год если задан двузначным числом
+                if year < 100:
+                    year = 2000 + year if year < 50 else 1900 + year
+                
+                # Проверяем валидность даты
+                try:
+                    date_value = datetime(year, month, day)
+                except ValueError:
+                    raise ValidationError("Пожалуйста, введите корректную дату")
+            
+            # Обрабатываем время
+            time_match = re.match(r'^(\d{1,2}):(\d{2})$', time_part)
+            if not time_match:
+                raise ValidationError("Пожалуйста, введите время в формате ЧЧ:ММ")
+            
+            hour, minute = map(int, time_match.groups())
+            if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+                raise ValidationError("Пожалуйста, введите корректное время")
+            
+            # Если дата получена из ключевого слова, добавляем время
+            if date_value:
+                date_value = date_value.replace(hour=hour, minute=minute)
+                return date_value.strftime("%d.%m.%y %H:%M")
+            
+            # Иначе просто возвращаем введенное значение, которое уже прошло валидацию
+            return value
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка в формате даты и времени: {e}")
+    
+    elif validation_type == TYPE_TIME:
+        try:
+            # Проверяем формат времени
+            time_match = re.match(r'^(\d{1,2}):(\d{2})$', value)
+            if not time_match:
+                raise ValidationError("Пожалуйста, введите время в формате ЧЧ:ММ")
+            
+            hour, minute = map(int, time_match.groups())
+            if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+                raise ValidationError("Пожалуйста, введите корректное время")
+            
+            return value
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка в формате времени: {e}")
+    
+    elif validation_type == TYPE_PHONE:
+        try:
+            # Удаляем все символы кроме цифр и +
+            clean_phone = re.sub(r'[^\d+]', '', value)
+            
+            # Проверяем что номер состоит из цифр и имеет хотя бы 7 цифр
+            if not re.match(r'^\+?\d{7,15}$', clean_phone):
+                raise ValidationError("Пожалуйста, введите корректный номер телефона")
+            
+            return value
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка в формате телефона: {e}")
+    
+    elif validation_type == TYPE_URL:
+        try:
+            # Проверяем что URL начинается с http:// или https://
+            if not re.match(r'^https?://', value):
+                raise ValidationError("URL должен начинаться с http:// или https://")
+            
+            # Проверяем что URL имеет хотя бы один символ после протокола
+            if not re.match(r'^https?://[^\s]+$', value):
+                raise ValidationError("Пожалуйста, введите корректный URL")
+            
+            return value
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка в формате URL: {e}")
+    
+    elif validation_type == TYPE_CONFIRM:
+        try:
+            # Проверяем ключевые слова для подтверждения на разных языках
+            value_lower = value.lower()
+            
+            # Проверяем на положительное подтверждение
+            for variants in CONFIRM_KEYWORDS["да"].values():
+                if value_lower in variants:
+                    return "да"
+            
+            # Проверяем на отрицательное подтверждение
+            for variants in CONFIRM_KEYWORDS["нет"].values():
+                if value_lower in variants:
+                    return "нет"
+            
+            raise ValidationError("Пожалуйста, ответьте 'да' или 'нет'")
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка при обработке подтверждения: {e}")
+    
+    elif validation_type == TYPE_NAME:
+        try:
+            # Разделяем строку на слова
+            words = value.strip().split()
+            
+            # Проверяем что есть хотя бы два слова
+            if len(words) < 2:
+                raise ValidationError("Пожалуйста, введите фамилию и имя")
+            
+            # Проверяем что каждое слово начинается с заглавной буквы для кириллицы
+            if any(re.match(r'^[а-яё]', word.lower()) for word in words):  # Если есть кириллические символы
+                if any(not re.match(r'^[А-ЯЁ][а-яё]+$', word) for word in words):
+                    raise ValidationError("Имя и фамилия должны начинаться с заглавной буквы")
+            
+            return value
+            
+        except ValidationError:
+            raise
+        except Exception as e:
+            raise ValidationError(f"Ошибка при обработке ФИО: {e}")
+    
     # Default case
     return value
+
+def _is_date_keyword(text: str) -> bool:
+    """Проверяет, является ли текст ключевым словом для даты"""
+    text_lower = text.lower()
+    for keyword_dict in DATE_KEYWORDS.values():
+        if text_lower in keyword_dict.values():
+            return True
+    return False
+
+def _parse_date_keywords(text: str) -> Optional[datetime]:
+    """Преобразует ключевые слова даты в объект datetime"""
+    text_lower = text.lower()
+    
+    # Получаем текущую дату
+    today = datetime.now()
+    
+    # Проверяем ключевое слово "сегодня"
+    for lang_value in DATE_KEYWORDS["сегодня"].values():
+        if text_lower == lang_value:
+            return today
+    
+    # Проверяем ключевое слово "завтра"
+    for lang_value in DATE_KEYWORDS["завтра"].values():
+        if text_lower == lang_value:
+            return today + timedelta(days=1)
+    
+    # Проверяем ключевое слово "вчера"
+    for lang_value in DATE_KEYWORDS["вчера"].values():
+        if text_lower == lang_value:
+            return today - timedelta(days=1)
+    
+    return None
 
 def parse_validation(validation_str: str) -> Tuple[str, Optional[dict]]:
     """
@@ -74,12 +312,34 @@ def parse_validation(validation_str: str) -> Tuple[str, Optional[dict]]:
     # Если передан список - значит это кнопки
     if isinstance(validation_str, list):
         return TYPE_BUTTONS, {'buttons': validation_str}
-        
+    
+    # Проверяем различные типы валидации
     if validation_str == "текст":
         return TYPE_TEXT, None
     
     if validation_str == "символы":
         return TYPE_SYMBOLS, None
+    
+    if validation_str == "дата":
+        return TYPE_DATE, None
+    
+    if validation_str == "дата+время":
+        return TYPE_DATETIME, None
+    
+    if validation_str == "время":
+        return TYPE_TIME, None
+    
+    if validation_str == "телефон":
+        return TYPE_PHONE, None
+    
+    if validation_str == "ссылка":
+        return TYPE_URL, None
+    
+    if validation_str == "подтверждение":
+        return TYPE_CONFIRM, None
+    
+    if validation_str == "фио":
+        return TYPE_NAME, None
     
     if validation_str.startswith("номер"):
         # Parse number range

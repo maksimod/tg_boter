@@ -63,7 +63,25 @@ def back():
 
 @callback("start_survey")
 def start_demo_survey():
-    my_surv()
+    # Запускаем тестовый опрос с разными типами данных
+    advanced_survey()
+
+@survey("advanced_survey")
+def advanced_survey():
+    return create_survey([
+        ["Как вас зовут? (Фамилия Имя)", "фио"],
+        ["Сколько вам лет?", "номер:3-100"],
+        ["Укажите дату встречи (ДД.ММ.ГГ или 'сегодня', 'завтра')", "дата"],
+        ["Укажите время встречи (ЧЧ:ММ)", "время"],
+        ["Или укажите дату и время вместе (ДД.ММ.ГГ ЧЧ:ММ или 'сегодня 15:30')", "дата+время"],
+        ["Введите контактный телефон", "телефон"],
+        ["Введите ссылку на ваш профиль (начиная с http:// или https://)", "ссылка"],
+        ["Вы подтверждаете правильность введенных данных? (да/нет)", "подтверждение"],
+        ["Как вы хотели бы продолжить?", [
+            [["Вернуться в меню", "back_choice"]],
+            [["Информация", "info_choice"], ["Помощь", "help_choice"]]
+        ]]
+    ], after="action")
 
 @callback("action")
 def action_after_survey(answers=None):
@@ -80,12 +98,37 @@ def action_after_survey(answers=None):
     # Вызван с результатами опроса
     try:
         # Получаем ответы от пользователя
-        age = answers[0] if len(answers) > 0 else "не указан"
-        name = answers[1] if len(answers) > 1 else "не указано"
-        mood = answers[2] if len(answers) > 2 else "не указано"
-        interaction = answers[3] if len(answers) > 3 else "не указан"
-        
-        message = f"Спасибо за ответы! Ваш возраст: {age}, имя: {name}, настроение: {mood}, предпочтение: {interaction}"
+        if len(answers) >= 8:  # Основной опрос
+            name = answers[0] if len(answers) > 0 else "не указано"
+            age = answers[1] if len(answers) > 1 else "не указан"
+            date = answers[2] if len(answers) > 2 else "не указана"
+            time = answers[3] if len(answers) > 3 else "не указано"
+            datetime_val = answers[4] if len(answers) > 4 else "не указаны"
+            phone = answers[5] if len(answers) > 5 else "не указан"
+            url = answers[6] if len(answers) > 6 else "не указан"
+            confirm = answers[7] if len(answers) > 7 else "не указано"
+            choice = answers[8] if len(answers) > 8 else "не сделан"
+            
+            message = (
+                f"Спасибо за заполнение анкеты!\n\n"
+                f"ФИО: {name}\n"
+                f"Возраст: {age}\n"
+                f"Дата встречи: {date}\n"
+                f"Время встречи: {time}\n"
+                f"Дата и время: {datetime_val}\n"
+                f"Телефон: {phone}\n"
+                f"Ссылка: {url}\n"
+                f"Подтверждение: {confirm}\n"
+                f"Выбор: {choice}"
+            )
+        else:  # Простой опрос с тремя вопросами
+            age = answers[0] if len(answers) > 0 else "не указан"
+            name = answers[1] if len(answers) > 1 else "не указано"
+            mood = answers[2] if len(answers) > 2 else "не указано"
+            interaction = answers[3] if len(answers) > 3 else "не указан"
+            
+            message = f"Спасибо за ответы! Ваш возраст: {age}, имя: {name}, настроение: {mood}, предпочтение: {interaction}"
+            
         print(f"Sending survey results: {message}")
         
         if current_update and current_context:
