@@ -8,6 +8,222 @@ from tabulate import tabulate
 # Настройки БД
 BOT_PREFIX = "tgbot_"
 
+# Класс для проверки и создания таблиц
+class DbChecker:
+    def __init__(self, host, database, user, password, port, table_prefix):
+        self.host = host
+        self.database = database
+        self.user = user
+        self.password = password
+        self.port = port
+        self.table_prefix = table_prefix
+        self.conn = None
+    
+    async def connect(self):
+        """Устанавливает соединение с базой данных"""
+        try:
+            self.conn = await asyncpg.connect(
+                host=self.host,
+                port=self.port,
+                user=self.user,
+                password=self.password,
+                database=self.database
+            )
+            return True
+        except Exception as e:
+            print(f"Ошибка при подключении к БД: {e}")
+            return False
+    
+    async def close(self):
+        """Закрывает соединение с базой данных"""
+        if self.conn:
+            await self.conn.close()
+    
+    async def check_table_exists(self, table_name):
+        """Проверяет существует ли таблица в БД"""
+        if not self.conn:
+            return False
+        
+        query = """
+        SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables 
+            WHERE table_name = $1 AND table_schema = 'public'
+        )
+        """
+        return await self.conn.fetchval(query, table_name)
+    
+    async def check_users_table(self):
+        """Проверяет и создает таблицу пользователей"""
+        table_name = f"{self.table_prefix}users"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                username TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id)
+            )
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_messages_table(self):
+        """Проверяет и создает таблицу для сообщений пользователей"""
+        table_name = f"{self.table_prefix}messages"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                message_text TEXT NOT NULL,
+                is_bot_message BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_bots_table(self):
+        """Проверяет и создает таблицу ботов"""
+        table_name = f"{self.table_prefix}bots"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                bot_id TEXT NOT NULL,
+                bot_name TEXT NOT NULL,
+                bot_token TEXT,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(bot_id)
+            );
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_bot_user_settings_table(self):
+        """Проверяет и создает таблицу настроек пользователя бота"""
+        table_name = f"{self.table_prefix}bot_user_settings"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                bot_id INTEGER NOT NULL,
+                language TEXT DEFAULT 'ru',
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, bot_id)
+            );
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_bot_user_state_table(self):
+        """Проверяет и создает таблицу состояний пользователя"""
+        table_name = f"{self.table_prefix}bot_user_state"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                bot_id INTEGER NOT NULL,
+                state_name TEXT,
+                state_data JSONB,
+                created_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, bot_id)
+            );
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_translations_table(self):
+        """Проверяет и создает таблицу переводов"""
+        table_name = f"{self.table_prefix}translations"
+        result = await self.check_table_exists(table_name)
+        
+        if not result:
+            print(f"Таблица {table_name} не найдена. Создаем...")
+            
+            create_query = f"""
+            CREATE TABLE {table_name} (
+                id SERIAL PRIMARY KEY,
+                source_text TEXT NOT NULL,
+                translated_text TEXT NOT NULL,
+                source_language VARCHAR(50) NOT NULL,
+                target_language VARCHAR(50) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(source_text, target_language)
+            );
+            """
+            
+            try:
+                await self.conn.execute(create_query)
+                print(f"Таблица {table_name} успешно создана")
+            except Exception as e:
+                print(f"Ошибка при создании таблицы {table_name}: {e}")
+        else:
+            print(f"Таблица {table_name} уже существует")
+    
+    async def check_all_tables(self):
+        """Проверяет и создает все необходимые таблицы"""
+        await self.check_users_table()
+        await self.check_bots_table()
+        await self.check_bot_user_settings_table()
+        await self.check_bot_user_state_table()
+        await self.check_translations_table()
+        await self.check_messages_table()
+
 # Загрузка настроек PostgreSQL
 def load_postgres_config():
     """Загружает настройки подключения к PostgreSQL из файла конфигурации"""
@@ -150,13 +366,44 @@ async def check_tables():
         print(f"Ошибка при проверке таблиц: {e}")
         return
 
+async def create_tables():
+    """Создает все необходимые таблицы в базе данных"""
+    try:
+        # Загружаем настройки PostgreSQL
+        host, database, user, password, port = load_postgres_config()
+        
+        print(f"Подключение к PostgreSQL для создания таблиц: {host}:{port}, DB: {database}, User: {user}")
+        
+        # Создаем объект для проверки и создания таблиц
+        db_checker = DbChecker(host, database, user, password, port, BOT_PREFIX)
+        
+        # Устанавливаем соединение
+        if not await db_checker.connect():
+            print("Не удалось подключиться к базе данных")
+            return
+        
+        print("Соединение с PostgreSQL успешно установлено")
+        
+        # Проверяем и создаем все таблицы
+        await db_checker.check_all_tables()
+        
+        # Закрываем соединение
+        await db_checker.close()
+        
+        print("Все таблицы проверены и созданы")
+        
+    except Exception as e:
+        print(f"Ошибка при создании таблиц: {e}")
+        return
+
 # Создаем пользовательское меню для проверки
 async def show_menu():
     """Показывает меню для проверки различных таблиц"""
     while True:
         print("\n=== МЕНЮ ПРОВЕРКИ БД ===")
         print("1. Проверить все таблицы")
-        print("2. Изменить префикс таблиц")
+        print("2. Создать недостающие таблицы")
+        print("3. Изменить префикс таблиц")
         print("0. Выход")
         
         choice = input("\nВыберите опцию: ")
@@ -164,6 +411,8 @@ async def show_menu():
         if choice == "1":
             await check_tables()
         elif choice == "2":
+            await create_tables()
+        elif choice == "3":
             global BOT_PREFIX
             new_prefix = input(f"Введите новый префикс (текущий: {BOT_PREFIX}): ")
             if new_prefix:

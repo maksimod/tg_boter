@@ -9,6 +9,7 @@ from easy_bot import (
 )
 from easy_bot import current_update, current_context
 from base.survey import survey, create_survey
+from chatgpt import chatgpt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 
@@ -19,6 +20,7 @@ def start():
         ["Информация", "info"],
         ["Помощь", "help"],
         ["Пройти опрос", "start_survey"],
+        ["Спросить ChatGPT", "ask_chatgpt"],
         [["О боте", "about"], ["Выход", "exit"]]
     ])
 
@@ -171,6 +173,16 @@ def my_surv():
             [["О боте", "about_choice"], ["Выход", "exit_choice"]]
         ]]
     ], after="action")
+
+@callback("ask_chatgpt")
+def ask_chatgpt_callback():
+    auto_write_translated_message("Напишите ваш вопрос, и я отвечу на него с помощью ChatGPT.")
+    
+# Обработчик текстовых сообщений для ChatGPT
+@chatgpt("Ты - дружелюбный ассистент. Отвечай кратко и по делу на вопросы пользователя.")
+def handle_chatgpt_message(message_text):
+    # Это функция будет вызвана после обработки запроса ChatGPT
+    pass
 
 # Запуск бота
 if __name__ == "__main__":  run_bot() 

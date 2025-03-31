@@ -50,6 +50,7 @@ TIMEOUT = 30
 callbacks = {}
 current_update = None
 current_context = None
+chatgpt_handler = None  # Обработчик для ChatGPT запросов
 
 # PostgreSQL настройки
 DB_HOST = None
@@ -789,6 +790,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Ошибка при обработке опроса: {e}")
     
+    # Проверяем, есть ли обработчик для ChatGPT
+    if chatgpt_handler and update.message and update.message.text:
+        try:
+            await chatgpt_handler(update.message.text)
+            return
+        except Exception as e:
+            logging.error(f"Ошибка при обработке ChatGPT запроса: {e}")
+    
     # Если есть обработчик для текстовых сообщений, вызываем его
     if 'text_message' in callbacks and update.message and update.message.text:
         await callbacks['text_message'](update.message.text)
@@ -1167,4 +1176,10 @@ def on_auto_text_message(func):
             current_context.user_data['auto_functions'] = []
 
     callbacks['text_message'] = wrapper
-    return func 
+    return func
+
+# Регистрация обработчика ChatGPT
+def register_chatgpt_handler(handler):
+    """Регистрирует обработчик для сообщений ChatGPT"""
+    global chatgpt_handler
+    chatgpt_handler = handler 
