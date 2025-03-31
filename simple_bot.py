@@ -7,6 +7,10 @@ from easy_bot import (
     run_bot, 
     get_user_language
 )
+from easy_bot import current_update, current_context
+from base.survey import survey, create_survey
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+import asyncio
 
 @start
 def start():
@@ -14,6 +18,7 @@ def start():
     auto_message_with_buttons("Выберите действие:", [
         ["Информация", "info"],
         ["Помощь", "help"],
+        ["Пройти опрос", "start_survey"],
         [["О боте", "about"], ["Выход", "exit"]]
     ])
 
@@ -55,6 +60,60 @@ def exit():
 @callback("back_to_menu")
 def back():
     start()
+
+@callback("start_survey")
+def start_demo_survey():
+    my_surv()
+
+@callback("action")
+def action_after_survey(answers=None):
+    print(f"action_after_survey called with answers: {answers}")
+    
+    if answers is None:
+        # Вызван напрямую как callback, без аргументов
+        auto_write_translated_message("Действие после опроса")
+        auto_button([
+            ["Вернуться в меню", "back_to_menu"]
+        ])
+        return
+        
+    # Вызван с результатами опроса
+    try:
+        message = f"Спасибо за ответы! Ваш возраст: {answers[0]}, имя: {answers[1]}, настроение: {answers[2]}"
+        print(f"Sending survey results: {message}")
+        
+        if current_update and current_context:
+            chat_id = current_update.effective_chat.id
+            # Отправляем сообщение напрямую
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text=message
+            ))
+            
+            # Отправляем кнопку "Вернуться в меню"
+            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text="Выберите действие:",
+                reply_markup=reply_markup
+            ))
+    except Exception as e:
+        print(f"Ошибка при обработке результатов опроса: {e}")
+        if current_update and current_context:
+            chat_id = current_update.effective_chat.id
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text="Произошла ошибка при обработке результатов опроса"
+            ))
+
+@survey("my_surv")
+def my_surv():
+    return create_survey([
+        ["Сколько вам лет?", "номер:3-100"],
+        ["Как вас зовут?", "текст"],
+        ["Как настроение?", "текст"]
+    ], after="action")
 
 # Запуск бота
 if __name__ == "__main__":  run_bot() 

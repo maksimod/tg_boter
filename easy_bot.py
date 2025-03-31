@@ -81,6 +81,15 @@ TRANSLATIONS = {
     "fr": {},  # Французские сообщения будут переведены
 }
 
+# Импортируем обработчик опросов, если доступен
+try:
+    from base.survey import handle_survey_response
+    print("Survey module imported successfully")
+    has_survey_module = True
+except ImportError as e:
+    print(f"Error importing survey module: {e}")
+    has_survey_module = False
+
 # Функция для добавления callback
 def add_callback(callback_name, func):
     callbacks[callback_name] = func
@@ -747,6 +756,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # Обработчик обычных сообщений
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик текстовых сообщений"""
     global current_update, current_context
     current_update = update
     current_context = context
@@ -755,14 +765,14 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_db_id = context.user_data.get('db_user_id')
     
     # Если пользователь еще не в БД, добавляем его
-    if not user_db_id:
+    if not user_db_id and update.effective_user:
         user = update.effective_user
         chat_id = update.effective_chat.id
         user_db_id = await add_user_to_db(user.id, chat_id, user.username)
         context.user_data['db_user_id'] = user_db_id
     
     # Сохраняем сообщение в БД
-    if user_db_id:
+    if user_db_id and update.message and update.message.text:
         await add_message_to_db(user_db_id, update.message.text)
     
     # Если у пользователя нет выбранного языка, показываем выбор языка
@@ -770,12 +780,22 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await show_language_selection()
         return
     
+    # Проверяем, есть ли обработчик опросов и активный опрос
+    if has_survey_module:
+        try:
+            survey_handled = await handle_survey_response(update, context)
+            if survey_handled:
+                return
+        except Exception as e:
+            logging.error(f"Ошибка при обработке опроса: {e}")
+    
     # Если есть обработчик для текстовых сообщений, вызываем его
-    if 'text_message' in callbacks:
+    if 'text_message' in callbacks and update.message and update.message.text:
         await callbacks['text_message'](update.message.text)
     else:
         # По умолчанию просто отвечаем эхом
-        await write_translated_message(f"Вы написали: {update.message.text}")
+        if update.message and update.message.text:
+            await write_translated_message(f"Вы написали: {update.message.text}")
 
 # Обработчик callback запросов
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -804,7 +824,16 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Запускаем соответствующий обработчик callback
     if callback_data in callbacks:
-        await callbacks[callback_data]()
+        try:
+            callback_func = callbacks[callback_data]
+            # Проверяем, является ли этот callback функцией для обработки результатов опроса
+            # (мы не можем знать заранее, просто вызываем без аргументов)
+            await callback_func()
+        except Exception as e:
+            logging.error(f"Ошибка при выполнении callback {callback_data}: {e}")
+            import traceback
+            traceback.print_exc()
+            await update.callback_query.answer(text=f"Ошибка при обработке: {e}")
     else:
         await update.callback_query.answer(text=f"Обработчик для {callback_data} не найден")
 
@@ -816,9 +845,33 @@ def on_start(func):
 
 # Функция для регистрации обработчика callback
 def callback(callback_data):
-    """Декоратор для регистрации функции как обработчика callback"""
+    """
+    Декоратор для регистрации функции как обработчика callback
+    с автоматическим запуском асинхронных функций
+    """
     def decorator(func):
-        callbacks[callback_data] = func
+        def wrapper(*args, **kwargs):
+            print(f"Executing callback {callback_data} with args: {args}")
+            result = func(*args, **kwargs)
+            
+            # Запускаем автоматические функции
+            if current_context and 'auto_functions' in current_context.user_data:
+                async def execute_auto_functions():
+                    for f in current_context.user_data['auto_functions']:
+                        await f()
+                    current_context.user_data['auto_functions'] = []
+                
+                # Создаем и запускаем новую задачу в текущем цикле событий
+                if asyncio.get_event_loop().is_running():
+                    asyncio.create_task(execute_auto_functions())
+                
+            return result
+
+        # Регистрируем асинхронную обертку для callback
+        async def async_wrapper(*args, **kwargs):
+            return wrapper(*args, **kwargs)
+            
+        callbacks[callback_data] = async_wrapper
         return func
     return decorator
 
@@ -1089,23 +1142,6 @@ def start(func):
 
     callbacks['start'] = wrapper
     return func
-
-def callback(callback_data):
-    """
-    Декоратор для регистрации функции как обработчика callback
-    с автоматическим запуском асинхронных функций
-    """
-    def decorator(func):
-        async def wrapper():
-            func()
-            if current_context and 'auto_functions' in current_context.user_data:
-                for f in current_context.user_data['auto_functions']:
-                    await f()
-                current_context.user_data['auto_functions'] = []
-
-        callbacks[callback_data] = wrapper
-        return func
-    return decorator
 
 def on_auto_text_message(func):
     """
