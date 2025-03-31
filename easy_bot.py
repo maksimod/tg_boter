@@ -804,6 +804,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_context = context
     
     callback_data = update.callback_query.data
+    print(f"[HANDLER] Received callback query: {callback_data}")
     
     # Проверяем, не выбор ли это языка
     if callback_data.startswith("lang_"):
@@ -826,9 +827,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if callback_data in callbacks:
         try:
             callback_func = callbacks[callback_data]
-            # Проверяем, является ли этот callback функцией для обработки результатов опроса
-            # (мы не можем знать заранее, просто вызываем без аргументов)
+            print(f"[HANDLER] Calling callback function for {callback_data}")
+            # Действительно асинхронно вызываем callback функцию
             await callback_func()
+            print(f"[HANDLER] Callback function for {callback_data} completed")
         except Exception as e:
             logging.error(f"Ошибка при выполнении callback {callback_data}: {e}")
             import traceback
@@ -850,27 +852,25 @@ def callback(callback_data):
     с автоматическим запуском асинхронных функций
     """
     def decorator(func):
-        def wrapper(*args, **kwargs):
-            print(f"Executing callback {callback_data} with args: {args}")
-            result = func(*args, **kwargs)
-            
-            # Запускаем автоматические функции
-            if current_context and 'auto_functions' in current_context.user_data:
-                async def execute_auto_functions():
+        async def async_wrapper(*args, **kwargs):
+            print(f"[CALLBACK] Executing callback {callback_data} with args: {args}")
+            try:
+                result = func(*args, **kwargs)
+                print(f"[CALLBACK] Function {callback_data} returned: {result}")
+                
+                # Запускаем автоматические функции
+                if current_context and 'auto_functions' in current_context.user_data:
                     for f in current_context.user_data['auto_functions']:
                         await f()
                     current_context.user_data['auto_functions'] = []
                 
-                # Создаем и запускаем новую задачу в текущем цикле событий
-                if asyncio.get_event_loop().is_running():
-                    asyncio.create_task(execute_auto_functions())
-                
-            return result
+                return result
+            except Exception as e:
+                print(f"[CALLBACK] Error in callback {callback_data}: {e}")
+                import traceback
+                traceback.print_exc()
+                raise
 
-        # Регистрируем асинхронную обертку для callback
-        async def async_wrapper(*args, **kwargs):
-            return wrapper(*args, **kwargs)
-            
         callbacks[callback_data] = async_wrapper
         return func
     return decorator

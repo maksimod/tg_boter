@@ -90,6 +90,12 @@ def action_after_survey(answers=None):
                 text=message
             ))
             
+            # Также отправим дополнительное сообщение для теста
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text=f"action_after_survey called with answers: {answers}"
+            ))
+            
             # Отправляем кнопку "Вернуться в меню"
             keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -104,8 +110,11 @@ def action_after_survey(answers=None):
             chat_id = current_update.effective_chat.id
             asyncio.create_task(current_context.bot.send_message(
                 chat_id=chat_id,
-                text="Произошла ошибка при обработке результатов опроса"
+                text=f"Произошла ошибка при обработке результатов опроса: {e}"
             ))
+    auto_write_translated_message(f"Действие после опроса - {answers}")
+    # Дополнительная проверка в конце функции
+    print("action_after_survey полностью выполнена!")
 
 @survey("my_surv")
 def my_surv():

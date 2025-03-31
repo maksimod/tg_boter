@@ -254,7 +254,8 @@ async def handle_survey_response(update, context):
                 if after_callback in callbacks:
                     callback_func = callbacks[after_callback]
                     try:
-                        callback_func(survey_data['answers'])
+                        # Используем await для вызова асинхронной функции
+                        await callback_func(survey_data['answers'])
                         print(f"Callback {after_callback} executed successfully")
                     except Exception as e:
                         print(f"Error in callback {after_callback}: {e}")
