@@ -96,20 +96,40 @@ def validate_input(value: str, validation_type: str, validation_params: Optional
                 return date_value.strftime("%d.%m.%y")
             
             # Проверяем формат даты
-            date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$', value)
+            date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2})$', value)
             if not date_match:
-                raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ")
+                raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ (двузначный год)")
             
             day, month, year = map(int, date_match.groups())
             
+            # Проверяем диапазоны значений
+            if day < 1 or day > 31:
+                raise ValidationError("День должен быть в диапазоне от 1 до 31")
+            
+            if month < 1 or month > 12:
+                raise ValidationError("Месяц должен быть в диапазоне от 1 до 12")
+            
+            if year < 0 or year > 99:
+                raise ValidationError("Год должен быть двузначным числом (от 00 до 99)")
+            
             # Корректируем год если задан двузначным числом
-            if year < 100:
-                year = 2000 + year if year < 50 else 1900 + year
+            full_year = 2000 + year if year < 50 else 1900 + year
                 
-            # Проверяем валидность даты
+            # Проверяем валидность даты (месяцы с разным количеством дней и високосные года)
+            days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+            
+            # Проверка на високосный год для февраля
+            if month == 2 and ((full_year % 400 == 0) or (full_year % 100 != 0 and full_year % 4 == 0)):
+                days_in_month[2] = 29
+                
+            # Проверяем, что день не превышает количество дней в месяце
+            if day > days_in_month[month]:
+                raise ValidationError(f"Некорректная дата: в месяце {month} только {days_in_month[month]} дней")
+                
+            # Дополнительная проверка через datetime
             try:
-                date_value = datetime(year, month, day)
-                return value
+                date_value = datetime(full_year, month, day)
+                return value  # Возвращаем оригинальное значение, так как оно прошло все проверки
             except ValueError:
                 raise ValidationError("Пожалуйста, введите корректную дату")
                 
@@ -131,19 +151,39 @@ def validate_input(value: str, validation_type: str, validation_params: Optional
                 date_value = _parse_date_keywords(date_part)
             else:
                 # Проверяем формат даты
-                date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2}|\d{4})$', date_part)
+                date_match = re.match(r'^(\d{1,2})\.(\d{1,2})\.(\d{2})$', date_part)
                 if not date_match:
-                    raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ ЧЧ:ММ")
+                    raise ValidationError("Пожалуйста, введите дату в формате ДД.ММ.ГГ ЧЧ:ММ (двузначный год)")
                 
                 day, month, year = map(int, date_match.groups())
                 
+                # Проверяем диапазоны значений
+                if day < 1 or day > 31:
+                    raise ValidationError("День должен быть в диапазоне от 1 до 31")
+                
+                if month < 1 or month > 12:
+                    raise ValidationError("Месяц должен быть в диапазоне от 1 до 12")
+                
+                if year < 0 or year > 99:
+                    raise ValidationError("Год должен быть двузначным числом (от 00 до 99)")
+                
                 # Корректируем год если задан двузначным числом
-                if year < 100:
-                    year = 2000 + year if year < 50 else 1900 + year
+                full_year = 2000 + year if year < 50 else 1900 + year
+                
+                # Проверяем валидность даты (месяцы с разным количеством дней и високосные года)
+                days_in_month = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+                
+                # Проверка на високосный год для февраля
+                if month == 2 and ((full_year % 400 == 0) or (full_year % 100 != 0 and full_year % 4 == 0)):
+                    days_in_month[2] = 29
+                    
+                # Проверяем, что день не превышает количество дней в месяце
+                if day > days_in_month[month]:
+                    raise ValidationError(f"Некорректная дата: в месяце {month} только {days_in_month[month]} дней")
                 
                 # Проверяем валидность даты
                 try:
-                    date_value = datetime(year, month, day)
+                    date_value = datetime(full_year, month, day)
                 except ValueError:
                     raise ValidationError("Пожалуйста, введите корректную дату")
             
