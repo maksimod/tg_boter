@@ -79,7 +79,13 @@ def action_after_survey(answers=None):
         
     # Вызван с результатами опроса
     try:
-        message = f"Спасибо за ответы! Ваш возраст: {answers[0]}, имя: {answers[1]}, настроение: {answers[2]}"
+        # Получаем ответы от пользователя
+        age = answers[0] if len(answers) > 0 else "не указан"
+        name = answers[1] if len(answers) > 1 else "не указано"
+        mood = answers[2] if len(answers) > 2 else "не указано"
+        interaction = answers[3] if len(answers) > 3 else "не указан"
+        
+        message = f"Спасибо за ответы! Ваш возраст: {age}, имя: {name}, настроение: {mood}, предпочтение: {interaction}"
         print(f"Sending survey results: {message}")
         
         if current_update and current_context:
@@ -88,12 +94,6 @@ def action_after_survey(answers=None):
             asyncio.create_task(current_context.bot.send_message(
                 chat_id=chat_id,
                 text=message
-            ))
-            
-            # Также отправим дополнительное сообщение для теста
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text=f"action_after_survey called with answers: {answers}"
             ))
             
             # Отправляем кнопку "Вернуться в меню"
@@ -112,7 +112,7 @@ def action_after_survey(answers=None):
                 chat_id=chat_id,
                 text=f"Произошла ошибка при обработке результатов опроса: {e}"
             ))
-    auto_write_translated_message(f"Действие после опроса - {answers}")
+    
     # Дополнительная проверка в конце функции
     print("action_after_survey полностью выполнена!")
 
@@ -121,7 +121,12 @@ def my_surv():
     return create_survey([
         ["Сколько вам лет?", "номер:3-100"],
         ["Как вас зовут?", "текст"],
-        ["Как настроение?", "текст"]
+        ["Как настроение?", "текст"],
+        ["Как бы вы хотели со мной взаимодействовать?", [
+            [["Информация", "info_choice"], ["Помощь", "help_choice"]],
+            ["Пройти опрос", "survey_choice"],
+            [["О боте", "about_choice"], ["Выход", "exit_choice"]]
+        ]]
     ], after="action")
 
 # Запуск бота

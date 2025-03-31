@@ -11,6 +11,7 @@ _active_surveys = {}
 TYPE_TEXT = "text"
 TYPE_NUMBER = "number"
 TYPE_SYMBOLS = "symbols"
+TYPE_BUTTONS = "buttons"  # Новый тип для кнопок
 
 class ValidationError(Exception):
     """Exception raised when survey input validation fails."""
@@ -65,10 +66,15 @@ def parse_validation(validation_str: str) -> Tuple[str, Optional[dict]]:
     
     Args:
         validation_str: String specifying validation (e.g. "текст", "номер:3-100")
+        or a list of button options
     
     Returns:
         Tuple of (validation_type, params_dict)
     """
+    # Если передан список - значит это кнопки
+    if isinstance(validation_str, list):
+        return TYPE_BUTTONS, {'buttons': validation_str}
+        
     if validation_str == "текст":
         return TYPE_TEXT, None
     
@@ -154,11 +160,12 @@ def survey(survey_id: str):
                 
                 # Ask the first question directly using the bot
                 if survey_data['questions']:
-                    asyncio.create_task(current_context.bot.send_message(
-                        chat_id=chat_id,
-                        text=survey_data['questions'][0]['text']
+                    asyncio.create_task(ask_next_question(
+                        current_context, 
+                        chat_id, 
+                        survey_data
                     ))
-                    print(f"Sending first question to chat_id {chat_id}")
+                    print(f"Starting survey for chat_id {chat_id}")
             
             return survey_data
         return wrapper
@@ -201,88 +208,150 @@ async def handle_survey_response(update, context):
         return False
     
     question = survey_data['questions'][current_index]
-    if not update.message or not update.message.text:
-        print("No text message in update")
-        return False
-        
-    user_input = update.message.text
-    print(f"User input: {user_input}")
     
-    try:
-        # Validate the input
-        validated_value = validate_input(
-            user_input, 
-            question['validation_type'], 
-            question['validation_params']
-        )
+    # Проверяем, является ли вопрос кнопочным и есть ли callback данные
+    is_button_question = question['validation_type'] == TYPE_BUTTONS
+    
+    # Если это вопрос с кнопками и пришел callback_query
+    if is_button_question and update.callback_query:
+        button_value = update.callback_query.data
+        # Подтверждаем получение callback запроса
+        await update.callback_query.answer()
         
-        print(f"Input validated successfully: {validated_value}")
+        print(f"Received button choice: {button_value}")
         
-        # Store the answer
-        survey_data['answers'].append(validated_value)
-        
-        # Move to the next question
+        # Сохраняем ответ и переходим к следующему вопросу
+        survey_data['answers'].append(button_value)
         survey_data['current_index'] += 1
         current_index = survey_data['current_index']
         
-        print(f"Moving to question index: {current_index}")
-        
-        # If there are more questions, ask the next one
+        # Если есть еще вопросы, задаем следующий
         if current_index < len(survey_data['questions']):
-            next_question = survey_data['questions'][current_index]['text']
-            print(f"Asking next question: {next_question} to chat_id {chat_id}")
-            
-            # Напрямую отправляем сообщение вместо использования auto_write_translated_message
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text=next_question
-            )
+            await ask_next_question(context, chat_id, survey_data)
         else:
-            # Survey is complete
-            print(f"Survey complete, sending completion message to chat_id {chat_id}")
-            await context.bot.send_message(
-                chat_id=chat_id,
-                text="Спасибо за ваши ответы!"
+            # Опрос завершен
+            await finish_survey(context, chat_id, user_id, survey_data)
+        
+        return True
+    
+    # Обычный текстовый ответ
+    if not is_button_question and update.message and update.message.text:
+        user_input = update.message.text
+        print(f"User input: {user_input}")
+        
+        try:
+            # Validate the input
+            validated_value = validate_input(
+                user_input, 
+                question['validation_type'], 
+                question['validation_params']
             )
             
-            # Call the after callback if available
-            after_callback = survey_data.get('after_callback')
-            print(f"Survey complete, calling callback: {after_callback}")
+            print(f"Input validated successfully: {validated_value}")
             
-            if after_callback:
-                from easy_bot import callbacks
-                if after_callback in callbacks:
-                    callback_func = callbacks[after_callback]
-                    try:
-                        # Используем await для вызова асинхронной функции
-                        await callback_func(survey_data['answers'])
-                        print(f"Callback {after_callback} executed successfully")
-                    except Exception as e:
-                        print(f"Error in callback {after_callback}: {e}")
-                else:
-                    print(f"Callback {after_callback} not found in registered callbacks")
+            # Store the answer
+            survey_data['answers'].append(validated_value)
+            
+            # Move to the next question
+            survey_data['current_index'] += 1
+            current_index = survey_data['current_index']
+            
+            print(f"Moving to question index: {current_index}")
+            
+            # If there are more questions, ask the next one
+            if current_index < len(survey_data['questions']):
+                await ask_next_question(context, chat_id, survey_data)
+            else:
+                # Опрос завершен
+                await finish_survey(context, chat_id, user_id, survey_data)
                 
-            # Clear the active survey
-            del _active_surveys[user_id]
-            
-    except ValidationError as e:
-        # Validation failed, ask again
-        print(f"Validation error: {e}")
-        # Напрямую отправляем сообщение об ошибке
+        except ValidationError as e:
+            # Validation failed, ask again
+            print(f"Validation error: {e}")
+            # Напрямую отправляем сообщение об ошибке
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=str(e)
+            )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=question['text']
+            )
+        except Exception as e:
+            print(f"Unexpected error in handle_survey_response: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return True
+    
+    return False
+
+async def ask_next_question(context, chat_id, survey_data):
+    """Задает следующий вопрос опроса"""
+    current_index = survey_data['current_index']
+    question = survey_data['questions'][current_index]
+    
+    print(f"Asking next question: {question['text']}")
+    
+    # Если вопрос требует кнопки
+    if question['validation_type'] == TYPE_BUTTONS:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
+        buttons = question['validation_params'].get('buttons', [])
+        keyboard = []
+        
+        for button_row in buttons:
+            if isinstance(button_row, list) and isinstance(button_row[0], list):
+                # Это горизонтальный ряд кнопок
+                row = []
+                for button in button_row:
+                    row.append(InlineKeyboardButton(button[0], callback_data=button[1]))
+                keyboard.append(row)
+            elif isinstance(button_row, list):
+                # Это одиночная кнопка
+                keyboard.append([InlineKeyboardButton(button_row[0], callback_data=button_row[1])])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
         await context.bot.send_message(
             chat_id=chat_id,
-            text=str(e)
+            text=question['text'],
+            reply_markup=reply_markup
         )
+    else:
+        # Обычный текстовый вопрос
         await context.bot.send_message(
             chat_id=chat_id,
             text=question['text']
         )
-    except Exception as e:
-        print(f"Unexpected error in handle_survey_response: {e}")
-        import traceback
-        traceback.print_exc()
+
+async def finish_survey(context, chat_id, user_id, survey_data):
+    """Завершает опрос и вызывает callback функцию"""
+    print(f"Survey complete, sending completion message to chat_id {chat_id}")
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text="Спасибо за ваши ответы!"
+    )
     
-    return True
+    # Call the after callback if available
+    after_callback = survey_data.get('after_callback')
+    print(f"Survey complete, calling callback: {after_callback}")
+    
+    if after_callback:
+        from easy_bot import callbacks
+        if after_callback in callbacks:
+            callback_func = callbacks[after_callback]
+            try:
+                # Используем await для вызова асинхронной функции
+                await callback_func(survey_data['answers'])
+                print(f"Callback {after_callback} executed successfully")
+            except Exception as e:
+                print(f"Error in callback {after_callback}: {e}")
+        else:
+            print(f"Callback {after_callback} not found in registered callbacks")
+    
+    # Clear the active survey
+    del _active_surveys[user_id]
 
 def get_survey_results(survey_id: str) -> List:
     """

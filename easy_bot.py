@@ -823,6 +823,17 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await write_translated_message("Привет! Я бот. Используйте /help для помощи.")
         return
     
+    # Проверяем, есть ли обработчик опросов и пробуем обработать выбор кнопки
+    if has_survey_module:
+        try:
+            survey_handled = await handle_survey_response(update, context)
+            if survey_handled:
+                return
+        except Exception as e:
+            logging.error(f"Ошибка при обработке callback опроса: {e}")
+            import traceback
+            traceback.print_exc()
+    
     # Запускаем соответствующий обработчик callback
     if callback_data in callbacks:
         try:
