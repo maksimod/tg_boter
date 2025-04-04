@@ -186,22 +186,21 @@ def handle_chatgpt_message(message_text):
     # Это функция будет вызвана после обработки запроса ChatGPT
     pass
 
-# Новый функционал для создания уведомлений
+# Функционал создания уведомлений
 @callback("create_notification")
-def create_notification():
+def start_notification_creation():
     auto_write_translated_message("Давайте создадим уведомление.")
     notification_survey()
 
 @survey("notification_survey")
 def notification_survey():
     return create_survey([
-        ["Введите текст уведомления", "текст"],
-        ["Через сколько минут отправить уведомление? (от 1 до 1440)", "номер:1-1440"],
-        ["Повторять уведомление? (да/нет)", "подтверждение"]
-    ], after="schedule_notification")
+        ["Введите дату и время уведомления (ДД.ММ.ГГ ЧЧ:ММ, например 31.03.25 16:17)", "дата+время"],
+        ["Введите текст уведомления", "текст"]
+    ], after="process_notification")
 
-@callback("schedule_notification")
-def schedule_notification(answers=None):
+@callback("process_notification")
+def process_notification(answers=None):
     if answers is None:
         auto_write_translated_message("Ошибка при создании уведомления.")
         auto_button([
@@ -210,27 +209,78 @@ def schedule_notification(answers=None):
         return
     
     try:
-        notification_text = answers[0]
-        minutes = int(answers[1])
-        repeat = answers[2].lower() in ["да", "yes", "true", "1"]
+        # Получаем ответы из опроса
+        notification_datetime = answers[0]
+        notification_text = answers[1]
         
-        # Получаем текущее время и рассчитываем время отправки
+        # Создаем уведомление
+        create_notification(notification_datetime, notification_text)
+        
+    except Exception as e:
+        print(f"Ошибка при обработке уведомления: {e}")
+        if current_update and current_context:
+            chat_id = current_update.effective_chat.id
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text=f"Произошла ошибка при создании уведомления: {e}"
+            ))
+            
+            # Отправляем кнопку возврата в меню
+            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text="Выберите действие:",
+                reply_markup=reply_markup
+            ))
+
+def create_notification(notification_datetime, notification_text):
+    """
+    Функция для создания уведомления с конкретной датой и временем
+    
+    Args:
+        notification_datetime (str): Дата и время в формате ДД.ММ.ГГ ЧЧ:ММ
+        notification_text (str): Текст уведомления
+    """
+    try:
+        # Парсим дату и время
+        try:
+            # Преобразуем строку даты и времени в объект datetime
+            dt_parts = notification_datetime.split(' ')
+            date_parts = dt_parts[0].split('.')
+            time_parts = dt_parts[1].split(':')
+            
+            day = int(date_parts[0])
+            month = int(date_parts[1])
+            year = int('20' + date_parts[2]) if len(date_parts[2]) == 2 else int(date_parts[2])
+            hour = int(time_parts[0])
+            minute = int(time_parts[1])
+            
+            notification_time = datetime(year, month, day, hour, minute)
+            
+        except (ValueError, IndexError) as e:
+            if current_update and current_context:
+                chat_id = current_update.effective_chat.id
+                asyncio.create_task(current_context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Некорректный формат даты и времени. Используйте формат ДД.ММ.ГГ ЧЧ:ММ, например 31.03.25 16:17. Ошибка: {e}"
+                ))
+            return
+        
+        # Формируем сообщение с деталями уведомления
         current_time = datetime.now()
-        notification_time = current_time + timedelta(minutes=minutes)
+        time_diff = notification_time - current_time
+        minutes_diff = int(time_diff.total_seconds() / 60)
         
         message = (
             f"Уведомление создано!\n\n"
             f"Текст: {notification_text}\n"
-            f"Будет отправлено: через {minutes} мин. ({notification_time.strftime('%d.%m.%Y %H:%M')})\n"
-            f"Повторение: {'Да' if repeat else 'Нет'}"
+            f"Дата и время: {notification_datetime}\n"
+            f"(Будет отправлено через {minutes_diff} мин.)"
         )
         
         if current_update and current_context:
             chat_id = current_update.effective_chat.id
-            
-            # Регистрируем уведомление (имитация, так как нет настоящего планировщика в этом примере)
-            # В реальном приложении здесь был бы код для сохранения уведомления в БД
-            # и настройка планировщика задач
             
             # Отправляем подтверждение
             asyncio.create_task(current_context.bot.send_message(
@@ -238,20 +288,16 @@ def schedule_notification(answers=None):
                 text=message
             ))
             
-            # Симуляция отправки уведомления для демонстрации
-            async def send_notification_later():
-                await asyncio.sleep(minutes * 60)  # Ждем указанное количество минут
+            # Планируем отправку уведомления
+            async def send_notification_at_time():
+                # Рассчитываем время ожидания в секундах
+                wait_seconds = max(0, time_diff.total_seconds())
+                await asyncio.sleep(wait_seconds)
                 notification_message = f"🔔 УВЕДОМЛЕНИЕ: {notification_text}"
                 await current_context.bot.send_message(chat_id=chat_id, text=notification_message)
-                
-                if repeat:
-                    await current_context.bot.send_message(
-                        chat_id=chat_id,
-                        text="Это уведомление настроено на повторение."
-                    )
             
             # Запускаем асинхронную задачу для отправки уведомления
-            asyncio.create_task(send_notification_later())
+            asyncio.create_task(send_notification_at_time())
             
             # Отправляем кнопку возврата в меню
             keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
