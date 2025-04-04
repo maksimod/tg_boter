@@ -70,7 +70,7 @@ def init_database():
                 CREATE TABLE IF NOT EXISTS {NOTIFICATIONS_TABLE} (
                     id SERIAL PRIMARY KEY,
                     user_id NUMERIC,
-                    notification_text TEXT,
+                    message TEXT,
                     notification_time TIMESTAMP WITH TIME ZONE,
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
                     is_sent BOOLEAN DEFAULT FALSE
@@ -143,7 +143,7 @@ def create_notification(user_id, message, notification_time):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                f"INSERT INTO {NOTIFICATIONS_TABLE} (user_id, notification_text, notification_time) VALUES (%s, %s, %s) RETURNING id",
+                f"INSERT INTO {NOTIFICATIONS_TABLE} (user_id, message, notification_time) VALUES (%s, %s, %s) RETURNING id",
                 (user_id, message, notification_time)
             )
             notification_id = cursor.fetchone()[0]
@@ -165,7 +165,7 @@ def get_user_notifications(user_id):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                f"SELECT id, notification_text, notification_time FROM {NOTIFICATIONS_TABLE} WHERE user_id = %s AND is_sent = FALSE ORDER BY notification_time",
+                f"SELECT id, message, notification_time FROM {NOTIFICATIONS_TABLE} WHERE user_id = %s AND is_sent = FALSE ORDER BY notification_time",
                 (user_id,)
             )
             return cursor.fetchall()
@@ -186,7 +186,7 @@ def get_notifications_to_send(current_time):
         with conn.cursor() as cursor:
             # Находим все неотправленные уведомления, время которых настало
             query = f"""
-                SELECT id, user_id, notification_text 
+                SELECT id, user_id, message 
                 FROM {NOTIFICATIONS_TABLE} 
                 WHERE 
                     is_sent = FALSE AND 
@@ -235,7 +235,7 @@ def get_all_active_notifications():
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                f"SELECT id, user_id, notification_text, notification_time, is_sent FROM {NOTIFICATIONS_TABLE} WHERE is_sent = FALSE"
+                f"SELECT id, user_id, message, notification_time, is_sent FROM {NOTIFICATIONS_TABLE} WHERE is_sent = FALSE"
             )
             return cursor.fetchall()
     except Exception as e:
@@ -293,7 +293,7 @@ def get_all_user_notifications(user_id):
     try:
         with conn.cursor() as cursor:
             cursor.execute(
-                f"SELECT id, notification_text, notification_time, is_sent FROM {NOTIFICATIONS_TABLE} WHERE user_id = %s ORDER BY notification_time",
+                f"SELECT id, message, notification_time, is_sent FROM {NOTIFICATIONS_TABLE} WHERE user_id = %s ORDER BY notification_time",
                 (user_id,)
             )
             return cursor.fetchall()
