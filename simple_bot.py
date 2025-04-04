@@ -12,7 +12,75 @@ from base.survey import survey, create_survey
 from chatgpt import chatgpt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
+import threading
+import subprocess
+import sys
+import logging
 from datetime import datetime, timedelta
+from notifications import process_notification_request
+import os
+import time
+
+# Настройка логирования
+logger = logging.getLogger('simple_bot')
+
+# Функция для запуска процессора уведомлений в отдельном процессе
+def start_notification_processor():
+    logger.info("Запуск процессора уведомлений в отдельном процессе")
+    try:
+        # Проверяем существование файла запуска
+        processor_script = 'run_notification_processor.py'
+        if not os.path.exists(processor_script):
+            logger.error(f"Файл {processor_script} не найден")
+            return False
+            
+        # Проверяем, не запущен ли уже процессор уведомлений
+        # Это простая проверка, не гарантирующая точность
+        import psutil
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline', [])
+                if cmdline and len(cmdline) > 1 and processor_script in cmdline[1]:
+                    logger.info(f"Процессор уведомлений уже запущен (PID: {proc.info['pid']})")
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+        
+        # Запускаем отдельный процесс для обработки уведомлений
+        process = subprocess.Popen([
+            sys.executable, 
+            processor_script
+        ], 
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=subprocess.CREATE_NEW_CONSOLE)
+        
+        logger.info(f"Процессор уведомлений запущен с PID: {process.pid}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при запуске процессора уведомлений: {e}")
+        return False
+
+# Функция для проверки доступности процессора уведомлений
+def check_notification_processor():
+    try:
+        # Проверяем, запущен ли процессор уведомлений
+        import psutil
+        processor_script = 'run_notification_processor.py'
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+            try:
+                cmdline = proc.info.get('cmdline', [])
+                if cmdline and len(cmdline) > 1 and processor_script in cmdline[1]:
+                    logger.info(f"Процессор уведомлений работает (PID: {proc.info['pid']})")
+                    return True
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                continue
+                
+        logger.warning("Процессор уведомлений не запущен")
+        return False
+    except Exception as e:
+        logger.error(f"Ошибка при проверке статуса процессора уведомлений: {e}")
+        return False
 
 @start
 def start():
@@ -213,9 +281,59 @@ def process_notification(answers=None):
         notification_datetime = answers[0]
         notification_text = answers[1]
         
-        # Создаем уведомление
-        create_notification(notification_datetime, notification_text)
+        # Получаем ID пользователя для уведомления
+        user_id = None
+        chat_id = None
+        if current_update:
+            try:
+                user_id = current_update.effective_user.id
+                chat_id = current_update.effective_chat.id
+                print(f"DEBUG: Получен user_id={user_id}, chat_id={chat_id}")
+            except Exception as e:
+                print(f"DEBUG: Ошибка при получении user_id: {e}")
         
+        # Если не удалось получить user_id, используем chat_id
+        if not user_id and chat_id:
+            print(f"DEBUG: Используем chat_id={chat_id} в качестве user_id")
+            user_id = chat_id
+            
+        # Принудительное получение chat_id, если еще нет
+        if not chat_id and current_context and current_update:
+            chat_id = current_update.effective_chat.id
+            print(f"DEBUG: Принудительно получен chat_id={chat_id}")
+            if not user_id:
+                user_id = chat_id
+                print(f"DEBUG: Устанавливаем user_id={user_id} равным chat_id")
+        
+        if not user_id:
+            print("DEBUG: Не удалось определить user_id или chat_id")
+            auto_write_translated_message("Ошибка: не удалось определить ID пользователя.")
+            auto_button([
+                ["Вернуться в меню", "back_to_menu"]
+            ])
+            return
+            
+        print(f"DEBUG: Создание уведомления для user_id={user_id}, дата={notification_datetime}, текст={notification_text}")
+        # Используем функцию из модуля notifications для обработки запроса
+        success = process_notification_request(notification_datetime, notification_text, current_update, current_context)
+        
+        if not success and current_update and current_context:
+            # Если произошла ошибка и есть доступ к боту, отправляем сообщение
+            chat_id = current_update.effective_chat.id
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text="Произошла ошибка при создании уведомления. Пожалуйста, проверьте формат даты и времени."
+            ))
+            
+            # Отправляем кнопку возврата в меню
+            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            asyncio.create_task(current_context.bot.send_message(
+                chat_id=chat_id,
+                text="Выберите действие:",
+                reply_markup=reply_markup
+            ))
+            
     except Exception as e:
         print(f"Ошибка при обработке уведомления: {e}")
         if current_update and current_context:
@@ -234,87 +352,38 @@ def process_notification(answers=None):
                 reply_markup=reply_markup
             ))
 
-def create_notification(notification_datetime, notification_text):
-    """
-    Функция для создания уведомления с конкретной датой и временем
-    
-    Args:
-        notification_datetime (str): Дата и время в формате ДД.ММ.ГГ ЧЧ:ММ
-        notification_text (str): Текст уведомления
-    """
-    try:
-        # Парсим дату и время
-        try:
-            # Преобразуем строку даты и времени в объект datetime
-            dt_parts = notification_datetime.split(' ')
-            date_parts = dt_parts[0].split('.')
-            time_parts = dt_parts[1].split(':')
-            
-            day = int(date_parts[0])
-            month = int(date_parts[1])
-            year = int('20' + date_parts[2]) if len(date_parts[2]) == 2 else int(date_parts[2])
-            hour = int(time_parts[0])
-            minute = int(time_parts[1])
-            
-            notification_time = datetime(year, month, day, hour, minute)
-            
-        except (ValueError, IndexError) as e:
-            if current_update and current_context:
-                chat_id = current_update.effective_chat.id
-                asyncio.create_task(current_context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Некорректный формат даты и времени. Используйте формат ДД.ММ.ГГ ЧЧ:ММ, например 31.03.25 16:17. Ошибка: {e}"
-                ))
-            return
-        
-        # Формируем сообщение с деталями уведомления
-        current_time = datetime.now()
-        time_diff = notification_time - current_time
-        minutes_diff = int(time_diff.total_seconds() / 60)
-        
-        message = (
-            f"Уведомление создано!\n\n"
-            f"Текст: {notification_text}\n"
-            f"Дата и время: {notification_datetime}\n"
-            f"(Будет отправлено через {minutes_diff} мин.)"
-        )
-        
-        if current_update and current_context:
-            chat_id = current_update.effective_chat.id
-            
-            # Отправляем подтверждение
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text=message
-            ))
-            
-            # Планируем отправку уведомления
-            async def send_notification_at_time():
-                # Рассчитываем время ожидания в секундах
-                wait_seconds = max(0, time_diff.total_seconds())
-                await asyncio.sleep(wait_seconds)
-                notification_message = f"🔔 УВЕДОМЛЕНИЕ: {notification_text}"
-                await current_context.bot.send_message(chat_id=chat_id, text=notification_message)
-            
-            # Запускаем асинхронную задачу для отправки уведомления
-            asyncio.create_task(send_notification_at_time())
-            
-            # Отправляем кнопку возврата в меню
-            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text="Выберите действие:",
-                reply_markup=reply_markup
-            ))
-    except Exception as e:
-        print(f"Ошибка при создании уведомления: {e}")
-        if current_update and current_context:
-            chat_id = current_update.effective_chat.id
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text=f"Произошла ошибка при создании уведомления: {e}"
-            ))
-
 # Запуск бота
-if __name__ == "__main__":  run_bot() 
+if __name__ == "__main__":
+    try:
+        # Проверка наличия модуля psutil
+        try:
+            import psutil
+        except ImportError:
+            logger.warning("Модуль psutil не установлен. Установка...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "psutil"])
+            logger.info("Модуль psutil успешно установлен")
+            import psutil
+        
+        # Запускаем процессор уведомлений перед запуском бота
+        processor_started = start_notification_processor()
+        if not processor_started:
+            logger.warning("Не удалось запустить процессор уведомлений. Уведомления могут не отправляться.")
+        
+        # Периодическая проверка статуса процессора уведомлений
+        def check_processor_periodically():
+            while True:
+                time.sleep(300)  # Проверка каждые 5 минут
+                if not check_notification_processor():
+                    logger.warning("Процессор уведомлений не работает. Попытка перезапуска...")
+                    start_notification_processor()
+        
+        # Запуск периодической проверки в отдельном потоке
+        threading.Thread(target=check_processor_periodically, daemon=True).start()
+        
+        # Запускаем бота
+        logger.info("Запуск основного бота...")
+        run_bot()
+    except Exception as e:
+        logger.error(f"Ошибка при запуске бота: {e}")
+        import traceback
+        logger.error(traceback.format_exc()) 
