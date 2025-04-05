@@ -33,7 +33,7 @@ if not logger.handlers:
     logger.addHandler(console_handler)
     
     # Добавляем также обработчик для записи в файл
-    file_handler = logging.FileHandler('notifications.log')
+    file_handler = logging.FileHandler('log/notifications.log')
     file_handler.setLevel(logging.DEBUG)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)

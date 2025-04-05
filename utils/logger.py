@@ -4,7 +4,7 @@ Logging utility functions for the bot application
 import logging
 import sys
 
-def setup_logging(log_file='simple_bot.log'):
+def setup_logging(log_file='log/simple_bot.log'):
     """
     Настраивает логирование для всего приложения
     

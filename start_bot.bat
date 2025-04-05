@@ -1,6 +1,10 @@
 @echo off
 echo Starting Telegram Bot...
 
+REM Создаем директорию для логов, если она не существует
+if not exist log mkdir log
+echo Log directory checked...
+
 REM Активируем виртуальное окружение, если оно есть
 if exist .venv\Scripts\activate.bat (
     call .venv\Scripts\activate.bat
@@ -24,7 +28,7 @@ if errorlevel 1 (
 REM Убиваем существующие процессы процессора уведомлений, если они есть
 echo Stopping existing notification processors...
 taskkill /F /IM pythonw.exe /FI "COMMANDLINE eq *run_notification_processor.py*" 2>NUL
-if exist notification_processor_running.txt del notification_processor_running.txt
+if exist log\notification_processor_running.txt del log\notification_processor_running.txt
 
 REM Запускаем процессор уведомлений напрямую с pythonw
 echo Starting notification processor in background...
@@ -35,7 +39,7 @@ echo Waiting for notification processor to initialize...
 timeout /t 2 /nobreak >nul
 
 REM Проверяем, что процессор запущен
-if exist notification_processor_running.txt (
+if exist log\notification_processor_running.txt (
     echo Notification processor started successfully
 ) else (
     echo WARNING: Notification processor may not have started correctly
@@ -48,5 +52,5 @@ python simple_bot.py
 REM Если бот остановлен, закрываем процесс-обработчик уведомлений
 echo Bot stopped. Shutting down notification processor...
 taskkill /F /IM pythonw.exe /FI "COMMANDLINE eq *run_notification_processor.py*" 2>NUL
-if exist notification_processor_running.txt del notification_processor_running.txt
+if exist log\notification_processor_running.txt del log\notification_processor_running.txt
 exit /b 0 

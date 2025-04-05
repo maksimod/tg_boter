@@ -13,7 +13,7 @@ from database import init_database
 logger = logging.getLogger('notifications')
 if not logger.handlers:
     logger.setLevel(logging.INFO)
-    file_handler = logging.FileHandler('notifications.log', encoding='utf-8')
+    file_handler = logging.FileHandler('log/notifications.log', encoding='utf-8')
     file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)
 

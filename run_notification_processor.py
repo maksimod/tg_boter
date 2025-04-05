@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('notifications_processor.log', encoding='utf-8'),
+        logging.FileHandler('log/notifications_processor.log', encoding='utf-8'),
         logging.StreamHandler()
     ]
 )
@@ -150,7 +150,7 @@ async def run_notification_processor():
 
 if __name__ == "__main__":
     # Создаем файл-маркер для определения, что процессор запущен
-    with open("notification_processor_running.txt", "w") as f:
+    with open("log/notification_processor_running.txt", "w") as f:
         f.write(f"Started at {datetime.now()}")
     
     logger.info("Запуск скрипта процессора уведомлений")
@@ -167,8 +167,8 @@ if __name__ == "__main__":
     finally:
         # Удаляем файл-маркер
         try:
-            if os.path.exists("notification_processor_running.txt"):
-                os.remove("notification_processor_running.txt")
+            if os.path.exists("log/notification_processor_running.txt"):
+                os.remove("log/notification_processor_running.txt")
         except:
             pass
     
