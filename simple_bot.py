@@ -268,7 +268,7 @@ def notification_survey():
     ], after="process_notification")
 
 @callback("process_notification")
-def process_notification(answers=None):
+def process_notification(answers=None, update=None, context=None):
     if answers is None:
         auto_write_translated_message("Ошибка при создании уведомления.")
         auto_button([
@@ -284,10 +284,15 @@ def process_notification(answers=None):
         # Получаем ID пользователя для уведомления
         user_id = None
         chat_id = None
-        if current_update:
+        
+        # Используем переданные update и context, если они доступны
+        current_upd = update or current_update
+        current_ctx = context or current_context
+        
+        if current_upd:
             try:
-                user_id = current_update.effective_user.id
-                chat_id = current_update.effective_chat.id
+                user_id = current_upd.effective_user.id
+                chat_id = current_upd.effective_chat.id
                 print(f"DEBUG: Получен user_id={user_id}, chat_id={chat_id}")
             except Exception as e:
                 print(f"DEBUG: Ошибка при получении user_id: {e}")
@@ -298,8 +303,8 @@ def process_notification(answers=None):
             user_id = chat_id
             
         # Принудительное получение chat_id, если еще нет
-        if not chat_id and current_context and current_update:
-            chat_id = current_update.effective_chat.id
+        if not chat_id and current_ctx and current_upd:
+            chat_id = current_upd.effective_chat.id
             print(f"DEBUG: Принудительно получен chat_id={chat_id}")
             if not user_id:
                 user_id = chat_id
@@ -315,12 +320,12 @@ def process_notification(answers=None):
             
         print(f"DEBUG: Создание уведомления для user_id={user_id}, дата={notification_datetime}, текст={notification_text}")
         # Используем функцию из модуля notifications для обработки запроса
-        success = process_notification_request(notification_datetime, notification_text, current_update, current_context)
+        success = process_notification_request(notification_datetime, notification_text, current_upd, current_ctx)
         
-        if not success and current_update and current_context:
+        if not success and current_upd and current_ctx:
             # Если произошла ошибка и есть доступ к боту, отправляем сообщение
-            chat_id = current_update.effective_chat.id
-            asyncio.create_task(current_context.bot.send_message(
+            chat_id = current_upd.effective_chat.id
+            asyncio.create_task(current_ctx.bot.send_message(
                 chat_id=chat_id,
                 text="Произошла ошибка при создании уведомления. Пожалуйста, проверьте формат даты и времени."
             ))
@@ -328,7 +333,7 @@ def process_notification(answers=None):
             # Отправляем кнопку возврата в меню
             keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(current_context.bot.send_message(
+            asyncio.create_task(current_ctx.bot.send_message(
                 chat_id=chat_id,
                 text="Выберите действие:",
                 reply_markup=reply_markup
@@ -336,9 +341,11 @@ def process_notification(answers=None):
             
     except Exception as e:
         print(f"Ошибка при обработке уведомления: {e}")
-        if current_update and current_context:
-            chat_id = current_update.effective_chat.id
-            asyncio.create_task(current_context.bot.send_message(
+        cur_upd = update or current_update
+        cur_ctx = context or current_context
+        if cur_upd and cur_ctx:
+            chat_id = cur_upd.effective_chat.id
+            asyncio.create_task(cur_ctx.bot.send_message(
                 chat_id=chat_id,
                 text=f"Произошла ошибка при создании уведомления: {e}"
             ))
@@ -346,7 +353,7 @@ def process_notification(answers=None):
             # Отправляем кнопку возврата в меню
             keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(current_context.bot.send_message(
+            asyncio.create_task(cur_ctx.bot.send_message(
                 chat_id=chat_id,
                 text="Выберите действие:",
                 reply_markup=reply_markup

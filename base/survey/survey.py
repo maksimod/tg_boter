@@ -638,12 +638,12 @@ async def finish_survey(context, chat_id, user_id, survey_data):
     print(f"Survey complete, calling callback: {after_callback}")
     
     if after_callback:
-        from easy_bot import callbacks
+        from easy_bot import callbacks, current_update, current_context
         if after_callback in callbacks:
             callback_func = callbacks[after_callback]
             try:
-                # Используем await для вызова асинхронной функции
-                await callback_func(survey_data['answers'])
+                # Используем await для вызова асинхронной функции и передаем current_update и current_context
+                await callback_func(survey_data['answers'], current_update, current_context)
                 print(f"Callback {after_callback} executed successfully")
             except Exception as e:
                 print(f"Error in callback {after_callback}: {e}")
