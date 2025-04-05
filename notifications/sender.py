@@ -9,8 +9,8 @@ from datetime import datetime, timedelta
 import pytz
 import sys
 
-# Импортируем необходимые функции из модуля database
-from database import (
+# Импортируем необходимые функции из модуля base.db
+from base.db import (
     MOSCOW_TZ, get_all_active_notifications,
     mark_notification_as_sent, fix_notification_timezone, 
     NOTIFICATIONS_TABLE, get_db_connection, get_notifications_to_send

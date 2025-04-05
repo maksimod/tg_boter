@@ -7,7 +7,7 @@ import logging
 import asyncio
 import os
 import time
-from database import init_database
+from base.db import init_database
 
 # Настройка логирования для пакета уведомлений
 logger = logging.getLogger('notifications')

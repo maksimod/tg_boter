@@ -6,7 +6,7 @@ import traceback
 from telegram.ext import Application
 
 # Импортируем необходимые функции
-from database import init_database
+from base.db import init_database
 from notifications.core import setup_handlers, start_scheduler, start_bot_polling
 
 # Получаем логгер
@@ -108,7 +108,7 @@ def set_bot_app(app):
             return False
             
         _bot_app = app
-        logger.info(f"Внешний экземпляр бота успешно установлен: {app.bot.username if hasattr(app.bot, 'username') else 'unknown'}")
+        logger.info("Внешний экземпляр бота успешно установлен")
         return True
     except Exception as e:
         logger.error(f"Ошибка при установке внешнего экземпляра бота: {e}")

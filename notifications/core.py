@@ -13,7 +13,7 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ConversationHandler, ContextTypes
 
 # Import database functions
-from database import (
+from base.db import (
     MOSCOW_TZ, init_database, save_user, save_message, create_notification,
     get_user_notifications, get_db_time, get_all_user_notifications
 )

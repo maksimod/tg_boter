@@ -13,8 +13,9 @@ from datetime import datetime
 
 # Настройка пути для импорта модулей из родительской директории
 current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.append(parent_dir)
 
 # Настройка логирования
 logging.basicConfig(
@@ -31,7 +32,7 @@ logger.setLevel(logging.DEBUG)
 # Импортируем необходимые компоненты
 try:
     # Инициализируем базу данных сразу
-    from database import MOSCOW_TZ, init_database
+    from base.db import MOSCOW_TZ, init_database
     
     # Явно инициализируем базу данных
     logger.info("Инициализация базы данных...")

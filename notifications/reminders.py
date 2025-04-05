@@ -6,7 +6,7 @@ import traceback
 import pytz
 from datetime import datetime
 
-from database import MOSCOW_TZ, create_notification, get_user_notifications
+from base.db import MOSCOW_TZ, create_notification, get_user_notifications
 
 # Получаем логгер
 logger = logging.getLogger(__name__)

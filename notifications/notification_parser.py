@@ -8,7 +8,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
 
 from notifications.reminders import create_reminder
-from database import MOSCOW_TZ
+from base.db import MOSCOW_TZ
 
 # Настройка логгера
 logger = logging.getLogger(__name__)
