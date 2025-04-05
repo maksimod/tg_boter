@@ -12,74 +12,12 @@ from base.survey import survey, create_survey
 from chatgpt import chatgpt
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 import asyncio
-import threading
-import subprocess
 import sys
 import logging
-from datetime import datetime, timedelta
 from notifications import process_notification_request
-import os
-import time
 
 # Настройка логирования
 logger = logging.getLogger('simple_bot')
-
-# Функция для запуска процессора уведомлений в отдельном процессе
-def start_notification_processor():
-    logger.info("Запуск процессора уведомлений в отдельном процессе")
-    try:
-        # Проверяем существование файла запуска
-        processor_script = 'run_notification_processor.py'
-        if not os.path.exists(processor_script):
-            logger.error(f"Файл {processor_script} не найден")
-            return False
-            
-        # Проверяем, не запущен ли уже процессор уведомлений
-        # Это простая проверка, не гарантирующая точность
-        import psutil
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                cmdline = proc.info.get('cmdline', [])
-                if cmdline and len(cmdline) > 1 and processor_script in cmdline[1]:
-                    logger.info(f"Процессор уведомлений уже запущен (PID: {proc.info['pid']})")
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-        
-        # Запускаем отдельный процесс для обработки уведомлений
-        process = subprocess.Popen([
-            sys.executable, 
-            processor_script
-        ], 
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE)
-        
-        logger.info(f"Процессор уведомлений запущен с PID: {process.pid}")
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при запуске процессора уведомлений: {e}")
-        return False
-
-# Функция для проверки доступности процессора уведомлений
-def check_notification_processor():
-    try:
-        # Проверяем, запущен ли процессор уведомлений
-        import psutil
-        processor_script = 'run_notification_processor.py'
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
-            try:
-                cmdline = proc.info.get('cmdline', [])
-                if cmdline and len(cmdline) > 1 and processor_script in cmdline[1]:
-                    logger.info(f"Процессор уведомлений работает (PID: {proc.info['pid']})")
-                    return True
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
-                
-        logger.warning("Процессор уведомлений не запущен")
-        return False
-    except Exception as e:
-        logger.error(f"Ошибка при проверке статуса процессора уведомлений: {e}")
-        return False
 
 @start
 def start():
@@ -361,38 +299,29 @@ def process_notification(answers=None, update=None, context=None):
 # Запуск бота
 if __name__ == "__main__":
     try:
-        # Проверка наличия модуля psutil
+        # Получаем экземпляр бота без запуска
+        logger.info("Получение экземпляра бота...")
+        from easy_bot import get_bot_instance, run_bot
+        app = get_bot_instance()
+        
+        if app is None:
+            logger.error("Не удалось получить экземпляр бота")
+            sys.exit(1)
+        
+        # Передаем экземпляр бота в модуль уведомлений
+        logger.info("Передача экземпляра бота в модуль уведомлений...")
         try:
-            import psutil
-        except ImportError:
-            logger.warning("Модуль psutil не установлен. Установка...")
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "psutil"])
-            logger.info("Модуль psutil успешно установлен")
-            import psutil
+            from notifications.bot_manager import set_bot_app
+            if set_bot_app(app):
+                logger.info("Экземпляр бота успешно передан в модуль уведомлений")
+            else:
+                logger.error("Не удалось передать экземпляр бота в модуль уведомлений")
+        except Exception as e:
+            logger.error(f"Ошибка при передаче экземпляра бота: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
         
-        # Проверяем, нужно ли запускать процессор уведомлений
-        # Если переменная окружения установлена, значит процессор уже запущен вручную
-        if os.environ.get('NOTIFICATION_PROCESSOR_RUNNING') != '1':
-            logger.info("Запуск встроенного процессора уведомлений...")
-            # Запускаем процессор уведомлений перед запуском бота
-            processor_started = start_notification_processor()
-            if not processor_started:
-                logger.warning("Не удалось запустить процессор уведомлений. Уведомления могут не отправляться.")
-            
-            # Периодическая проверка статуса процессора уведомлений
-            def check_processor_periodically():
-                while True:
-                    time.sleep(300)  # Проверка каждые 5 минут
-                    if not check_notification_processor():
-                        logger.warning("Процессор уведомлений не работает. Попытка перезапуска...")
-                        start_notification_processor()
-            
-            # Запуск периодической проверки в отдельном потоке
-            threading.Thread(target=check_processor_periodically, daemon=True).start()
-        else:
-            logger.info("Процессор уведомлений уже запущен внешним скриптом")
-        
-        # Запускаем бота
+        # Теперь запускаем бота
         logger.info("Запуск основного бота...")
         run_bot()
     except Exception as e:

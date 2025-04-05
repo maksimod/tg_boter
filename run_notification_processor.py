@@ -1,185 +1,175 @@
+#!/usr/bin/env python
 """
-Скрипт для запуска процессора уведомлений отдельно от бота
+Processor that checks for notifications and sends them.
 """
-import asyncio
-import logging
-import sys
 import os
-from datetime import datetime
+import sys
+import asyncio
 import traceback
+import logging
 import time
+import pytz
+from datetime import datetime
 
-# Настройка логирования
-logger = logging.getLogger('notification_processor')
-logger.setLevel(logging.DEBUG)
-
-# Обработчик для файла
-file_handler = logging.FileHandler('notifications_processor.log', encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-file_handler.setFormatter(file_formatter)
-logger.addHandler(file_handler)
-
-# Обработчик для консоли
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.INFO)
-console_formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(console_formatter)
-logger.addHandler(console_handler)
-
-# Также настроим корневой логгер
-root_logger = logging.getLogger()
-if not root_logger.handlers:
-    root_logger.setLevel(logging.INFO)
-    root_logger.addHandler(file_handler)
-    root_logger.addHandler(console_handler)
-    
-logger.info("Логирование настроено для процессора уведомлений")
-
-# Добавляем текущую директорию в путь поиска модулей, если ещё не добавлена
+# Настройка пути для импорта модулей из родительской директории
 current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.append(current_dir)
-    logger.info(f"Добавлена директория {current_dir} в путь поиска модулей")
 
-# Импортируем необходимые модули
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('notifications_processor.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger('notification_processor')
+logger.setLevel(logging.DEBUG)
+
+# Импортируем необходимые компоненты
 try:
-    from notifications.sender import check_notifications, fix_timezones, scheduled_job
-    from notifications.bot_manager import get_bot_app, init_bot
-    logger.info("Модули notifications.sender и notifications.bot_manager успешно импортированы")
+    # Инициализируем базу данных сразу
+    from database import MOSCOW_TZ, init_database
+    
+    # Явно инициализируем базу данных
+    logger.info("Инициализация базы данных...")
+    init_database()
+    logger.info("База данных инициализирована")
+    
+    # Импортируем основные модули 
+    from notifications.sender import scheduled_job, check_notifications
+    from notifications.bot_manager import init_bot, get_bot_app
+    
+    logger.info("Все необходимые модули импортированы успешно")
 except Exception as e:
-    error_traceback = traceback.format_exc()
     logger.error(f"Ошибка при импорте модулей: {e}")
-    logger.error(f"Трассировка ошибки: {error_traceback}")
+    logger.error(traceback.format_exc())
+    sys.exit(1)
 
 class NotificationContext:
     """
-    Простой класс-заглушка для имитации контекста бота
+    Контекст для процессора уведомлений.
     """
     def __init__(self, bot):
         self.bot = bot
 
 async def run_notification_processor():
     """
-    Основная функция для запуска процессора уведомлений
+    Основная функция для запуска процессора уведомлений.
     """
-    logger.info("Запуск процессора уведомлений")
+    logger.info("===============================================")
+    logger.info("ЗАПУСК ПРОЦЕССОРА УВЕДОМЛЕНИЙ")
+    logger.info("===============================================")
+    
+    # Печатаем время и временную зону для отладки
+    now = datetime.now(MOSCOW_TZ)
+    logger.info(f"Текущее серверное время: {now.strftime('%d.%m.%Y %H:%M:%S %Z%z')}")
+    logger.info(f"Используемая временная зона: {MOSCOW_TZ}")
     
     try:
-        # Сначала инициализируем бота
+        # Инициализация Telegram бота
         logger.info("Инициализация бота...")
         
-        # Попробуем импортировать токен напрямую
+        # Загружаем токен
+        token = None
         try:
             from credentials.telegram.config import BOT_TOKEN
-            logger.info("Токен бота успешно загружен из конфигурации")
-        except Exception as token_err:
-            logger.error(f"Ошибка при загрузке токена бота: {token_err}")
-            logger.info("Попытка запуска без явного указания токена...")
-            BOT_TOKEN = None
+            token = BOT_TOKEN
+            logger.info("Токен бота загружен из конфигурации")
+        except Exception as token_error:
+            logger.error(f"Ошибка при загрузке токена: {token_error}")
+            logger.info("Попытка получить токен другим способом...")
         
-        # Инициализируем бота
+        # Инициализируем бота с повторными попытками
         bot_app = None
-        max_attempts = 3
-        current_attempt = 0
+        max_retries = 5
+        retry_count = 0
         
-        while bot_app is None and current_attempt < max_attempts:
-            current_attempt += 1
-            logger.info(f"Попытка {current_attempt}/{max_attempts} инициализации бота")
+        while bot_app is None and retry_count < max_retries:
+            retry_count += 1
+            logger.info(f"Попытка {retry_count}/{max_retries} инициализации бота")
             
             try:
-                bot_app = init_bot(BOT_TOKEN, run=False)
+                # Пробуем инициализировать бота
+                bot_app = init_bot(token, run=False)
+                
                 if bot_app:
-                    logger.info(f"Бот успешно инициализирован через init_bot: {bot_app}")
+                    logger.info(f"Бот успешно инициализирован через init_bot")
                 else:
-                    logger.warning("Не удалось инициализировать бота через init_bot")
-                    
-                    # Пробуем получить существующее приложение
-                    logger.info("Попытка получить существующее приложение бота...")
+                    logger.warning("Бот не инициализирован через init_bot, пробуем получить существующий")
                     bot_app = get_bot_app()
                     
                     if bot_app:
-                        logger.info(f"Успешно получено существующее приложение бота: {bot_app}")
+                        logger.info("Получен существующий бот")
                     else:
-                        logger.error("Не удалось получить существующее приложение бота")
-            except Exception as init_error:
-                logger.error(f"Ошибка при инициализации бота: {init_error}")
-                logger.error(f"Трассировка: {traceback.format_exc()}")
+                        logger.error("Не удалось получить существующий бот")
+                
+            except Exception as bot_error:
+                logger.error(f"Ошибка при инициализации бота: {bot_error}")
+                logger.error(traceback.format_exc())
             
-            if bot_app is None and current_attempt < max_attempts:
-                wait_time = 30  # секунд
+            if bot_app is None:
+                wait_time = 10  # секунд
                 logger.info(f"Ожидание {wait_time} секунд перед следующей попыткой...")
                 await asyncio.sleep(wait_time)
-            
+        
         if not bot_app:
-            logger.error("Не удалось инициализировать бота после всех попыток. Завершение работы процессора.")
+            logger.critical("Не удалось инициализировать бота после всех попыток")
             return
-            
-        # Проверяем наличие бота в приложении
-        if not hasattr(bot_app, 'bot') or bot_app.bot is None:
-            logger.error("Критическая ошибка: в приложении отсутствует объект бота (bot_app.bot is None)")
-            return
-            
-        logger.info(f"Инициализирован бот: {bot_app.bot}")
         
-        # Создаем контекст с ботом для отправки уведомлений
+        if not hasattr(bot_app, 'bot') or not bot_app.bot:
+            logger.critical("Объект бота не содержит атрибут 'bot'")
+            return
+        
+        logger.info(f"Бот успешно инициализирован: {bot_app.bot.username}")
+        
+        # Создаем контекст для отправки уведомлений
         context = NotificationContext(bot_app.bot)
-        logger.info(f"Контекст для отправки уведомлений создан с ботом: {context.bot}")
+        logger.info("Создан контекст для обработки уведомлений")
         
-        # Проверка контекста перед запуском
-        if not hasattr(context, 'bot') or context.bot is None:
-            logger.error("Критическая ошибка: context.bot отсутствует или равен None")
-            return
-        
-        # Исправляем часовые пояса существующих уведомлений перед запуском
-        logger.info("Исправление часовых поясов уведомлений...")
+        # Проверяем уведомления сразу после запуска
+        logger.info("ЗАПУСК НЕМЕДЛЕННОЙ ПРОВЕРКИ УВЕДОМЛЕНИЙ...")
         try:
-            await fix_timezones()
-            logger.info("Часовые пояса уведомлений исправлены")
-        except Exception as tz_error:
-            logger.error(f"Ошибка при исправлении часовых поясов: {tz_error}")
-            logger.error(f"Трассировка: {traceback.format_exc()}")
+            await check_notifications(context)
+            logger.info("Немедленная проверка уведомлений завершена")
+        except Exception as immediate_check_error:
+            logger.error(f"Ошибка при немедленной проверке уведомлений: {immediate_check_error}")
+            logger.error(traceback.format_exc())
         
-        # Тестовое логирование активных уведомлений
-        try:
-            from database import get_all_active_notifications
-            notifications = get_all_active_notifications()
-            logger.info(f"Найдено {len(notifications)} активных уведомлений в базе данных")
-            if notifications:
-                for n in notifications:
-                    logger.info(f"Активное уведомление: ID={n[0]}, user_id={n[1]}, текст='{n[2]}', время={n[3]}, отправлено={n[4]}")
-        except Exception as db_error:
-            logger.error(f"Ошибка при получении активных уведомлений из БД: {db_error}")
+        # Запускаем проверку и отправку уведомлений в цикле
+        logger.info("Запуск планировщика уведомлений...")
+        await scheduled_job(context)
         
-        # Запускаем бесконечный цикл проверки уведомлений
-        logger.info("Запуск планировщика уведомлений")
-        try:
-            # Вместо цикла с фиксированной задержкой используем scheduled_job
-            await scheduled_job(context)
-        except Exception as e:
-            error_traceback = traceback.format_exc()
-            logger.error(f"Ошибка при выполнении планировщика уведомлений: {e}")
-            logger.error(f"Трассировка ошибки: {error_traceback}")
     except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Критическая ошибка в процессоре уведомлений: {e}")
-        logger.error(f"Трассировка ошибки: {error_traceback}")
+        logger.critical(f"Критическая ошибка в процессоре уведомлений: {e}")
+        logger.critical(traceback.format_exc())
     
-    logger.error("Процессор уведомлений остановлен!")
+    logger.critical("Процессор уведомлений остановлен!")
 
 if __name__ == "__main__":
-    # Дадим основному приложению время инициализироваться
-    logger.info("Ожидание 10 секунд перед запуском процессора...")
-    time.sleep(10)
+    # Создаем файл-маркер для определения, что процессор запущен
+    with open("notification_processor_running.txt", "w") as f:
+        f.write(f"Started at {datetime.now()}")
+    
+    logger.info("Запуск скрипта процессора уведомлений")
+    logger.info(f"PID процесса: {os.getpid()}")
     
     try:
-        logger.info("Запуск асинхронного цикла для процессора уведомлений")
+        # Запускаем асинхронную функцию
         asyncio.run(run_notification_processor())
     except KeyboardInterrupt:
         logger.info("Получен сигнал остановки. Процессор уведомлений завершает работу.")
     except Exception as e:
-        error_traceback = traceback.format_exc()
-        logger.error(f"Неперехваченная ошибка при запуске процессора уведомлений: {e}")
-        logger.error(f"Трассировка ошибки: {error_traceback}")
+        logger.critical(f"Необработанная ошибка: {e}")
+        logger.critical(traceback.format_exc())
+    finally:
+        # Удаляем файл-маркер
+        try:
+            if os.path.exists("notification_processor_running.txt"):
+                os.remove("notification_processor_running.txt")
+        except:
+            pass
     
-    logger.info("Программа завершена.") 
+    logger.info("Скрипт процессора уведомлений завершил работу") 

@@ -21,17 +21,25 @@ if errorlevel 1 (
     )
 )
 
-REM Создаем временный VBS скрипт для запуска процессора уведомлений без окна
-echo Creating invisible launcher...
-echo Set WshShell = CreateObject("WScript.Shell") > invisible_launcher.vbs
-echo WshShell.Run "cmd.exe /c pythonw.exe run_notification_processor.py > notification_processor.log 2>&1", 0, False >> invisible_launcher.vbs
+REM Убиваем существующие процессы процессора уведомлений, если они есть
+echo Stopping existing notification processors...
+taskkill /F /IM pythonw.exe /FI "COMMANDLINE eq *run_notification_processor.py*" 2>NUL
+if exist notification_processor_running.txt del notification_processor_running.txt
 
-REM Запускаем процессор уведомлений в фоновом режиме без видимого окна
+REM Запускаем процессор уведомлений напрямую с pythonw
 echo Starting notification processor in background...
-wscript.exe //B //Nologo invisible_launcher.vbs
+start "" /B pythonw run_notification_processor.py
 
-REM Устанавливаем переменную окружения, чтобы simple_bot.py знал, что процессор уже запущен
-set NOTIFICATION_PROCESSOR_RUNNING=1
+REM Даем процессору время на инициализацию
+echo Waiting for notification processor to initialize...
+timeout /t 2 /nobreak >nul
+
+REM Проверяем, что процессор запущен
+if exist notification_processor_running.txt (
+    echo Notification processor started successfully
+) else (
+    echo WARNING: Notification processor may not have started correctly
+)
 
 REM Запускаем бота
 echo Starting main bot...
@@ -39,7 +47,6 @@ python simple_bot.py
 
 REM Если бот остановлен, закрываем процесс-обработчик уведомлений
 echo Bot stopped. Shutting down notification processor...
-taskkill /F /IM pythonw.exe 2>NUL
-REM Удаляем временный VBS скрипт
-del /F /Q invisible_launcher.vbs 2>NUL
+taskkill /F /IM pythonw.exe /FI "COMMANDLINE eq *run_notification_processor.py*" 2>NUL
+if exist notification_processor_running.txt del notification_processor_running.txt
 exit /b 0 

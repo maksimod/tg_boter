@@ -45,21 +45,25 @@ def init_bot(token, run=True):
         
         # Создание приложения бота
         logger.info("Создание приложения бота с токеном")
-        _bot_app = Application.builder().token(token).build()
+        app = Application.builder().token(token).build()
+        
+        # Сразу сохраняем экземпляр бота для доступа из процессора уведомлений
+        _bot_app = app
+        logger.info("Экземпляр бота сохранен глобально и доступен через get_bot_app()")
         
         # Настройка обработчиков команд
         logger.info("Настройка обработчиков команд бота")
-        setup_handlers(_bot_app)
+        setup_handlers(app)
         
         # Запуск бота и планировщика в отдельных потоках
         if run:
             logger.info("Запуск бота и планировщика уведомлений")
-            scheduler_thread = start_scheduler(_bot_app)
-            bot_thread = start_bot_polling(_bot_app)
+            scheduler_thread = start_scheduler(app)
+            bot_thread = start_bot_polling(app)
             logger.info("Бот и планировщик уведомлений успешно запущены")
             logger.info(f"ID потока планировщика: {scheduler_thread.ident}, ID потока бота: {bot_thread.ident}")
         
-        return _bot_app
+        return app
     except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Ошибка при инициализации бота: {e}")
@@ -74,4 +78,58 @@ def get_bot_app():
         Application: Объект приложения бота или None, если бот не инициализирован
     """
     global _bot_app
-    return _bot_app 
+    if _bot_app is None:
+        logger.warning("Попытка получить экземпляр бота, но он еще не инициализирован")
+    return _bot_app
+
+def set_bot_app(app):
+    """
+    Устанавливает внешний экземпляр бота для использования в уведомлениях
+    
+    Args:
+        app: Объект приложения бота telegram.ext.Application
+        
+    Returns:
+        bool: True если успешно установлен, False в противном случае
+    """
+    global _bot_app
+    try:
+        if app is None:
+            logger.error("Попытка установить None в качестве экземпляра бота")
+            return False
+            
+        # Проверяем, что это действительно объект Application
+        if not isinstance(app, Application):
+            logger.warning(f"Установлен необычный тип бота: {type(app)}, но продолжаем...")
+            
+        # Проверяем наличие атрибута bot
+        if not hasattr(app, 'bot'):
+            logger.error("У переданного объекта отсутствует атрибут 'bot'")
+            return False
+            
+        _bot_app = app
+        logger.info(f"Внешний экземпляр бота успешно установлен: {app.bot.username if hasattr(app.bot, 'username') else 'unknown'}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при установке внешнего экземпляра бота: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+# Функция принудительной инициализации бота с заданным токеном
+def force_init_bot(token):
+    """
+    Принудительно инициализирует бота с заданным токеном
+    
+    Args:
+        token (str): Токен Telegram бота
+        
+    Returns:
+        bool: True если инициализация успешна, False в противном случае
+    """
+    try:
+        logger.info("Принудительная инициализация бота")
+        app = init_bot(token, run=False)
+        return app is not None
+    except Exception as e:
+        logger.error(f"Ошибка при принудительной инициализации бота: {e}")
+        return False 

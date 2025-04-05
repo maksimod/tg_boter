@@ -91,6 +91,84 @@ except ImportError as e:
     print(f"Error importing survey module: {e}")
     has_survey_module = False
 
+# Глобальный экземпляр приложения бота
+_bot_application = None
+
+# Функция для создания экземпляра бота
+def get_bot_instance(token=None):
+    """
+    Создает экземпляр приложения бота, но не запускает его.
+    Полезно для передачи экземпляра бота в другие модули.
+    
+    Args:
+        token (str): Telegram токен бота (опционально)
+        
+    Returns:
+        Application: Экземпляр приложения бота
+    """
+    global BOT_TOKEN, _bot_application
+    
+    # Если бот уже создан, возвращаем его
+    if _bot_application is not None:
+        return _bot_application
+    
+    # Если токен передан явно
+    if token:
+        BOT_TOKEN = token
+    # Иначе пытаемся загрузить из конфигурации
+    elif not BOT_TOKEN:
+        if not load_token():
+            print("ОШИБКА: Токен бота не задан!")
+            print("Опции:")
+            print("1. Вставьте токен в файл credentials/telegram/token.txt")
+            print("2. Создайте модуль credentials/telegram/config.py с переменной BOT_TOKEN")
+            print("3. Передайте токен явно в функцию")
+            return None
+    
+    # Создание приложения
+    application = Application.builder().token(BOT_TOKEN).build()
+    
+    # Добавление обработчиков
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("reload_bot", reload_bot_command))
+    application.add_handler(CallbackQueryHandler(button_callback))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
+    
+    # Добавление обработчика ошибок
+    application.add_error_handler(error_handler)
+    
+    # Сохраняем глобально
+    _bot_application = application
+    
+    return application
+
+# Функция для запуска бота
+def run_bot(token=None):
+    """
+    Запускает бота с заданным токеном
+    
+    Returns:
+        Application: Возвращает экземпляр приложения бота
+    """
+    # Получаем экземпляр бота
+    application = get_bot_instance(token)
+    
+    if application is None:
+        return None
+    
+    # Настройка логирования
+    logging.basicConfig(
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        level=logging.INFO
+    )
+    
+    # Запуск бота - блокирующий вызов
+    print(f"Бот запущен! Нажмите Ctrl+C для остановки.")
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Эта строка не выполнится, пока бот работает
+    return application
+
 # Функция для добавления callback
 def add_callback(callback_name, func):
     callbacks[callback_name] = func
@@ -1018,77 +1096,6 @@ async def reload_bot_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     # Показываем выбор языка
     await show_language_selection()
-
-# Функция для запуска бота
-def run_bot(token=None):
-    """Запускает бота с заданным токеном"""
-    global BOT_TOKEN
-    
-    # Если токен передан явно
-    if token:
-        BOT_TOKEN = token
-    # Иначе пытаемся загрузить из конфигурации
-    elif not BOT_TOKEN:
-        if not load_token():
-            print("ОШИБКА: Токен бота не задан!")
-            print("Опции:")
-            print("1. Вставьте токен в файл credentials/telegram/token.txt")
-            print("2. Создайте модуль credentials/telegram/config.py с переменной BOT_TOKEN")
-            print("3. Передайте токен явно в функцию run_bot()")
-            return
-    
-    # Настройка логирования
-    logging.basicConfig(
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        level=logging.INFO
-    )
-    
-    # Создание приложения
-    application = Application.builder().token(BOT_TOKEN).build()
-    
-    # Добавление обработчиков
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CommandHandler("reload_bot", reload_bot_command))  # Новый обработчик
-    application.add_handler(CallbackQueryHandler(button_callback))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, message_handler))
-    
-    # Добавление обработчика ошибок
-    application.add_error_handler(error_handler)
-    
-    # Запуск бота - НЕ используем await, так как этот метод сам запускает свой цикл событий
-    print(f"Бот запущен! Нажмите Ctrl+C для остановки.")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
-
-# Пример использования
-if __name__ == "__main__":
-    # Инициализируем базу данных перед запуском бота
-    async def init_db():
-        db_initialized = await setup_db()
-        print(f"База данных инициализирована: {db_initialized}")
-        return db_initialized
-    
-    try:
-        # Запускаем инициализацию БД в отдельном цикле событий
-        db_successful = asyncio.run(init_db())
-        
-        # Проверяем, успешно ли инициализирована БД
-        if not db_successful:
-            print("ОШИБКА: Не удалось подключиться к базе данных!")
-            print("Бот не может работать без подключения к PostgreSQL.")
-            print("Проверьте настройки в credentials/postgres/config.py")
-            exit(1)  # Выходим с кодом ошибки
-        
-        # Создаем новый цикл событий перед запуском бота
-        asyncio.set_event_loop(asyncio.new_event_loop())
-        
-        # Запускаем бота (не в асинхронном контексте)
-        run_bot()
-    except KeyboardInterrupt:
-        print("Бот остановлен пользователем")
-    except Exception as e:
-        print(f"Ошибка при запуске бота: {e}")
-        import traceback
-        traceback.print_exc()
 
 # Добавляем новые функции-обертки для упрощения использования бота
 def auto_write_translated_message(text):
