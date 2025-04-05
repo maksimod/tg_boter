@@ -130,15 +130,21 @@ async def scheduled_job(context):
                 next_minute = (now + timedelta(minutes=1)).replace(second=0, microsecond=0)
                 seconds_to_wait = (next_minute - now).total_seconds()
                 
-                logger.info(f"Итерация #{iteration}: ожидание {seconds_to_wait:.2f} секунд до следующей проверки в {next_minute.strftime('%H:%M:%S')}")
+                logger.info(f"Итерация #{iteration}: ожидание {seconds_to_wait:.2f} секунд до начала следующей минуты ({next_minute.strftime('%H:%M:00')})")
                 
                 # Спим до следующей минуты
                 await asyncio.sleep(max(0, seconds_to_wait))
                 
-                logger.debug(f"Итерация #{iteration}: пробуждение планировщика, начало проверки")
+                # Проверяем момент обработки (должен быть ровно в начале минуты)
+                check_time = datetime.now(MOSCOW_TZ)
+                logger.info(f"Итерация #{iteration}: обработка началась в {check_time.strftime('%H:%M:%S.%f')} (запланировано на {next_minute.strftime('%H:%M:%S')})")
+                
                 # Проверяем уведомления
                 await check_notifications(context)
-                logger.debug(f"Итерация #{iteration}: завершение проверки")
+                
+                # Логируем время завершения
+                end_time = datetime.now(MOSCOW_TZ)
+                logger.info(f"Итерация #{iteration}: обработка завершена в {end_time.strftime('%H:%M:%S.%f')}, заняла {(end_time - check_time).total_seconds():.3f} сек")
             except Exception as e:
                 error_traceback = traceback.format_exc()
                 logger.error(f"Ошибка в планировщике на итерации #{iteration}: {e}")

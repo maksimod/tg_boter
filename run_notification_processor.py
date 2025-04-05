@@ -44,7 +44,7 @@ if current_dir not in sys.path:
 
 # Импортируем необходимые модули
 try:
-    from notifications.sender import check_notifications, fix_timezones
+    from notifications.sender import check_notifications, fix_timezones, scheduled_job
     from notifications.bot_manager import get_bot_app, init_bot
     logger.info("Модули notifications.sender и notifications.bot_manager успешно импортированы")
 except Exception as e:
@@ -152,27 +152,14 @@ async def run_notification_processor():
             logger.error(f"Ошибка при получении активных уведомлений из БД: {db_error}")
         
         # Запускаем бесконечный цикл проверки уведомлений
-        iteration = 0
-        
-        logger.info("Запуск цикла проверки уведомлений")
-        while True:
-            iteration += 1
-            try:
-                # Запускаем проверку уведомлений
-                logger.info(f"Итерация #{iteration}: начало проверки уведомлений")
-                await check_notifications(context)
-                logger.info(f"Итерация #{iteration}: завершение проверки уведомлений")
-                
-                # Ждем 60 секунд до следующей проверки
-                logger.info(f"Итерация #{iteration}: ожидание 60 секунд до следующей проверки")
-                await asyncio.sleep(60)
-            except Exception as e:
-                error_traceback = traceback.format_exc()
-                logger.error(f"Ошибка в процессоре уведомлений на итерации #{iteration}: {e}")
-                logger.error(f"Трассировка ошибки: {error_traceback}")
-                # Продолжаем работу даже при ошибке, но с задержкой
-                logger.info("Процессор продолжит работу через 60 секунд")
-                await asyncio.sleep(60)
+        logger.info("Запуск планировщика уведомлений")
+        try:
+            # Вместо цикла с фиксированной задержкой используем scheduled_job
+            await scheduled_job(context)
+        except Exception as e:
+            error_traceback = traceback.format_exc()
+            logger.error(f"Ошибка при выполнении планировщика уведомлений: {e}")
+            logger.error(f"Трассировка ошибки: {error_traceback}")
     except Exception as e:
         error_traceback = traceback.format_exc()
         logger.error(f"Критическая ошибка в процессоре уведомлений: {e}")

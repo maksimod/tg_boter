@@ -52,8 +52,7 @@ def start_notification_processor():
             processor_script
         ], 
         stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        creationflags=subprocess.CREATE_NEW_CONSOLE)
+        stderr=subprocess.PIPE)
         
         logger.info(f"Процессор уведомлений запущен с PID: {process.pid}")
         return True
@@ -371,21 +370,27 @@ if __name__ == "__main__":
             logger.info("Модуль psutil успешно установлен")
             import psutil
         
-        # Запускаем процессор уведомлений перед запуском бота
-        processor_started = start_notification_processor()
-        if not processor_started:
-            logger.warning("Не удалось запустить процессор уведомлений. Уведомления могут не отправляться.")
-        
-        # Периодическая проверка статуса процессора уведомлений
-        def check_processor_periodically():
-            while True:
-                time.sleep(300)  # Проверка каждые 5 минут
-                if not check_notification_processor():
-                    logger.warning("Процессор уведомлений не работает. Попытка перезапуска...")
-                    start_notification_processor()
-        
-        # Запуск периодической проверки в отдельном потоке
-        threading.Thread(target=check_processor_periodically, daemon=True).start()
+        # Проверяем, нужно ли запускать процессор уведомлений
+        # Если переменная окружения установлена, значит процессор уже запущен вручную
+        if os.environ.get('NOTIFICATION_PROCESSOR_RUNNING') != '1':
+            logger.info("Запуск встроенного процессора уведомлений...")
+            # Запускаем процессор уведомлений перед запуском бота
+            processor_started = start_notification_processor()
+            if not processor_started:
+                logger.warning("Не удалось запустить процессор уведомлений. Уведомления могут не отправляться.")
+            
+            # Периодическая проверка статуса процессора уведомлений
+            def check_processor_periodically():
+                while True:
+                    time.sleep(300)  # Проверка каждые 5 минут
+                    if not check_notification_processor():
+                        logger.warning("Процессор уведомлений не работает. Попытка перезапуска...")
+                        start_notification_processor()
+            
+            # Запуск периодической проверки в отдельном потоке
+            threading.Thread(target=check_processor_periodically, daemon=True).start()
+        else:
+            logger.info("Процессор уведомлений уже запущен внешним скриптом")
         
         # Запускаем бота
         logger.info("Запуск основного бота...")
