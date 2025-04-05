@@ -44,6 +44,13 @@ async def check_notifications(context):
         now = datetime.now(MOSCOW_TZ)
         logger.info(f"Проверка уведомлений в {now.strftime('%d.%m.%Y %H:%M:%S %z')}")
         
+        # Проверяем доступность бота
+        if not hasattr(context, 'bot'):
+            logger.error("КРИТИЧЕСКАЯ ОШИБКА: context.bot не доступен - уведомления не могут быть отправлены")
+            return
+        else:
+            logger.debug(f"Бот доступен: {context.bot}")
+        
         # Выводим все активные уведомления для отладки
         all_notifications = get_all_active_notifications()
         logger.info(f"Всего активных уведомлений в базе: {len(all_notifications)}")
@@ -71,26 +78,36 @@ async def check_notifications(context):
                 user_id_int = int(user_id)
                 
                 logger.debug(f"Попытка отправки уведомления {notification_id} пользователю {user_id_int}")
+                logger.debug(f"Детали уведомления: ID={notification_id}, user_id={user_id_int}, text='{message}'")
                 
-                # Проверяем доступность bot в контексте
-                if not hasattr(context, 'bot'):
-                    logger.error(f"Ошибка при отправке уведомления {notification_id}: context.bot не найден")
+                # Проверяем доступность bot в контексте еще раз для каждого уведомления
+                if not hasattr(context, 'bot') or context.bot is None:
+                    logger.error(f"Ошибка при отправке уведомления {notification_id}: context.bot не найден или равен None")
                     continue
                 
-                # Отправляем уведомление
-                logger.debug(f"Отправка сообщения через bot.send_message: chat_id={user_id_int}, text={message}")
-                await context.bot.send_message(
-                    chat_id=user_id_int,
-                    text=f"🔔 Напоминание: {message}"
-                )
+                # Отправляем уведомление с дополнительной защитой от ошибок
+                try:
+                    logger.debug(f"Отправка сообщения через bot.send_message: chat_id={user_id_int}, text='{message}'")
+                    await context.bot.send_message(
+                        chat_id=user_id_int,
+                        text=f"🔔 Напоминание: {message}"
+                    )
+                    logger.debug(f"Сообщение успешно отправлено пользователю {user_id_int}")
+                except Exception as send_error:
+                    error_traceback = traceback.format_exc()
+                    logger.error(f"Ошибка при вызове send_message для уведомления {notification_id}: {send_error}")
+                    logger.error(f"Трассировка ошибки при отправке: {error_traceback}")
+                    continue
                 
                 # Помечаем уведомление как отправленное
                 logger.debug(f"Пометка уведомления {notification_id} как отправленное")
-                mark_notification_as_sent(notification_id)
-                logger.info(f"Уведомление {notification_id} успешно отправлено пользователю {user_id}")
+                if mark_notification_as_sent(notification_id):
+                    logger.info(f"Уведомление {notification_id} успешно отправлено пользователю {user_id} и помечено как отправленное")
+                else:
+                    logger.error(f"Не удалось пометить уведомление {notification_id} как отправленное, хотя сообщение было отправлено")
             except Exception as e:
                 error_traceback = traceback.format_exc()
-                logger.error(f"Ошибка при отправке уведомления {notification_id}: {e}")
+                logger.error(f"Ошибка при обработке уведомления {notification_id}: {e}")
                 logger.error(f"Трассировка ошибки: {error_traceback}")
     except Exception as e:
         error_traceback = traceback.format_exc()
