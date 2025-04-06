@@ -320,8 +320,8 @@ def chatgpt(instruction: str):
             if hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
                 user_language = current_context.user_data['language']
             
-            # Отправляем сообщение о начале обработки запроса - НОВЫЙ ПОДХОД
-            message_sent = False
+            # Для ChatGPT ВСЕГДА показываем сообщение об обработке запроса
+            # так как запрос всегда отправляется на сервер
             processing_message = None
             
             try:
@@ -333,7 +333,6 @@ def chatgpt(instruction: str):
                     )
                     # Сохраняем ссылку на сообщение в контексте
                     current_context._chatgpt_processing_message = processing_message
-                    message_sent = True
             except Exception as e:
                 logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
             

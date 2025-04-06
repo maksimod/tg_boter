@@ -720,17 +720,19 @@ async def write_translated_message(text):
     # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
     target_language = get_user_language()
     
-    # Показываем сообщение "Обрабатываю запрос..." только если:
-    # 1. Язык не русский
-    # 2. Текст достаточно длинный
+    # Проверяем, нужно ли показывать сообщение "Обрабатываю запрос..."
+    # (только если текста нет в кэше/БД)
+    from language.translate_any_message import should_show_processing_message
+    show_processing = await should_show_processing_message(text, target_language)
+    
+    # Отправляем сообщение "Обрабатываю запрос..." только если нужно
     processing_message = None
-    if target_language.lower() != "русский" and target_language != "ru" and len(text) > 10 and current_update and hasattr(current_update, 'effective_chat'):
+    if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,
                 text="⏳ Обрабатываю запрос..."
             )
-            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
     
@@ -758,19 +760,38 @@ async def write_translated_message(text):
                 chat_id=current_update.effective_chat.id,
                 message_id=processing_message.message_id
             )
-            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
 # Функция для создания кнопок
 async def button(buttons_layout):
     """Создает кнопки из простого списка"""
-    # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
+    # Определяем язык перевода
     target_language = get_user_language()
     
-    # Отправляем сообщение "Обрабатываю запрос..." только для неуссского языка
+    # Собираем все тексты кнопок для проверки, нужно ли показывать индикатор обработки
+    all_button_texts = []
+    for row in buttons_layout:
+        if isinstance(row[0], list):
+            for btn in row:
+                all_button_texts.append(btn[0])
+        else:
+            all_button_texts.append(row[0])
+    
+    # Добавляем текст подсказки
+    all_button_texts.append("Выберите опцию:")
+    
+    # Проверяем хотя бы один текст на необходимость показа индикатора
+    from language.translate_any_message import should_show_processing_message
+    show_processing = False
+    for text in all_button_texts:
+        if await should_show_processing_message(text, target_language):
+            show_processing = True
+            break
+    
+    # Отправляем сообщение "Обрабатываю запрос..." только если нужно
     processing_message = None
-    if target_language.lower() != "русский" and target_language != "ru" and current_update and hasattr(current_update, 'effective_chat'):
+    if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,
@@ -778,8 +799,6 @@ async def button(buttons_layout):
             )
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
-    
-    keyboard = []
     
     try:
         # Собираем все тексты кнопок в один список для параллельного перевода
@@ -879,13 +898,29 @@ async def button(buttons_layout):
 # Функция для отправки сообщения с кнопками
 async def message_with_buttons(text, buttons_layout):
     """Отправляет сообщение с кнопками"""
-    # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
+    # Определяем язык перевода
     target_language = get_user_language()
     
-    # Отправляем сообщение "Обрабатываю запрос..." только для неуссского языка
-    # и если текст достаточно длинный
+    # Собираем все тексты для проверки, нужно ли показывать индикатор обработки
+    all_texts = [text]
+    for row in buttons_layout:
+        if isinstance(row[0], list):
+            for btn in row:
+                all_texts.append(btn[0])
+        else:
+            all_texts.append(row[0])
+    
+    # Проверяем хотя бы один текст на необходимость показа индикатора
+    from language.translate_any_message import should_show_processing_message
+    show_processing = False
+    for check_text in all_texts:
+        if await should_show_processing_message(check_text, target_language):
+            show_processing = True
+            break
+    
+    # Отправляем сообщение "Обрабатываю запрос..." только если нужно
     processing_message = None
-    if target_language.lower() != "русский" and target_language != "ru" and len(text) > 10 and current_update and hasattr(current_update, 'effective_chat'):
+    if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,

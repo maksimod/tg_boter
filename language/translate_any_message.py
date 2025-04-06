@@ -2,7 +2,7 @@ import os
 import logging
 import aiohttp
 import json
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple, Callable
 import asyncio
 
 # Задаем значения по умолчанию
@@ -55,9 +55,74 @@ db_semaphore = asyncio.Semaphore(1)  # Только 1 запрос к БД од�
 # Кэш в памяти для часто используемых переводов
 translation_cache = {}  # {(текст, язык): перевод}
 
+# Флаг для отслеживания успешной инициализации БД
+_db_initialized = False
+
 # Импортируем функции для работы с БД
 from base.database import get_translation_from_db as get_db_translation
 from base.database import save_translation_to_db as save_db_translation
+
+async def should_show_processing_message(text: str, target_language: str) -> bool:
+    """
+    Проверяет, нужно ли показывать сообщение "Обрабатываю запрос...".
+    Сообщение показывается только если:
+    1. Текста нет в кэше и нет в БД (требуется реальный перевод)
+    
+    Args:
+        text: Текст для перевода
+        target_language: Целевой язык
+        
+    Returns:
+        bool: True, если нужно показывать сообщение "Обрабатываю запрос..."
+    """
+    global _db_initialized
+
+    # Если язык русский, то не нужно показывать
+    if target_language.lower() == "русский" or target_language == "ru":
+        return False
+    
+    # Проверяем наличие в кэше памяти
+    cache_key = (text, target_language)
+    if cache_key in translation_cache:
+        # Добавляем отладочное сообщение
+        print(f"Найден перевод в кэше памяти для '{text[:20]}...' на {target_language}")
+        return False
+    
+    # Если БД не была успешно инициализирована ранее, проверяем только кэш
+    if not _db_initialized:
+        try:
+            # Проверяем соединение с БД
+            result = await get_db_translation(text, target_language)
+            # Если успешно получили результат, отмечаем БД как инициализированную
+            _db_initialized = True
+            
+            # Если получили перевод, сохраняем в кэш и возвращаем False
+            if result:
+                translation_cache[cache_key] = result
+                print(f"Найден перевод в БД для '{text[:20]}...' на {target_language}")
+                return False
+        except Exception as e:
+            # В случае ошибки БД, считаем что она не инициализирована
+            print(f"БД не инициализирована, будет показано сообщение 'Обрабатываю запрос...'")
+            _db_initialized = False
+            return True
+    else:
+        # БД инициализирована, проверяем наличие перевода
+        try:
+            result = await get_db_translation(text, target_language)
+            if result:
+                # Сохраняем в кэш
+                translation_cache[cache_key] = result
+                print(f"Найден перевод в БД для '{text[:20]}...' на {target_language}")
+                return False
+        except Exception as e:
+            print(f"Ошибка при получении перевода из БД: {e}")
+            # В случае ошибки БД, но если она была ранее инициализирована, 
+            # считаем что перевода нет
+    
+    # Если дошли сюда, значит перевода нет ни в кэше, ни в БД - показываем сообщение
+    print(f"Нет перевода в кэше или БД для '{text[:20]}...' на {target_language}. Будет показано сообщение.")
+    return True
 
 async def get_translation_from_db(source_text: str, target_language: str) -> Optional[str]:
     """
@@ -168,6 +233,8 @@ async def translate_any_message(
     Returns:
         str: Переведенное сообщение или None в случае ошибки
     """
+    global _db_initialized
+    
     if not message:
         return ""
         
@@ -183,9 +250,15 @@ async def translate_any_message(
     # Используем семафор для ограничения одновременных запросов на перевод
     async with translation_semaphore:    
         # Сначала проверяем наличие перевода в базе данных
-        cached_translation = await get_translation_from_db(message, target_language)
-        if cached_translation:
-            return cached_translation
+        try:
+            cached_translation = await get_translation_from_db(message, target_language)
+            if cached_translation:
+                # Успешно получили перевод из БД, отмечаем БД как инициализированную
+                _db_initialized = True
+                return cached_translation
+        except Exception as e:
+            logging.error(f"Ошибка при получении перевода из БД: {e}")
+            # БД не инициализирована, продолжаем с переводом через API
         
         # Уведомляем о начале перевода, если предоставлен callback
         if on_translate_start:
@@ -202,9 +275,18 @@ async def translate_any_message(
         if on_translate_end:
             await on_translate_end()
         
+        # Всегда сохраняем перевод в кэш памяти
+        translation_cache[cache_key] = translated_text
+        
         # Сохраняем перевод в базу данных (только если он не равен исходному тексту)
         if translated_text != message:
-            await save_translation_to_db(message, translated_text, source_language, target_language)
+            try:
+                await save_translation_to_db(message, translated_text, source_language, target_language)
+                # Если успешно сохранили в БД, отмечаем БД как инициализированную
+                _db_initialized = True
+            except Exception as e:
+                logging.error(f"Ошибка при сохранении перевода в БД: {e}")
+                # БД не инициализирована, но перевод уже в кэше памяти
         
         return translated_text
 
