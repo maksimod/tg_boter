@@ -88,30 +88,14 @@ def advanced_survey():
 
 @callback("action")
 def action_after_survey(answers=None, update=None, context=None):
-    """
-    Обрабатывает результаты опроса
-    Вызывается после завершения опроса с результатами
-    """
-    try:
-        from handlers.survey_handlers import process_survey_results
-        import asyncio
-        from easy_bot import current_update, current_context
-        
-        # Используем текущие update и context, если они не переданы
-        current_upd = update or current_update
-        current_ctx = context or current_context
-        
-        if current_upd and current_ctx:
-            # Запускаем асинхронную функцию process_survey_results через create_task
-            asyncio.create_task(
-                process_survey_results(answers, current_upd, current_ctx)
-            )
-        else:
-            print("Ошибка: Не удалось получить update и context для обработки результатов опроса")
-    except Exception as e:
-        print(f"Ошибка при обработке результатов опроса: {e}")
-        import traceback
-        traceback.print_exc()
+    from handlers.survey_handlers import process_survey_results
+    import asyncio
+    from easy_bot import current_update, current_context
+    
+    current_upd = update or current_update
+    current_ctx = context or current_context
+    
+    asyncio.create_task(process_survey_results(answers, current_upd, current_ctx))
 
 @auto_survey("my_surv")
 def my_surv():
