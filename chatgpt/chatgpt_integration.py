@@ -279,6 +279,45 @@ def chatgpt(instruction: str):
                 logging.error("Невозможно получить контекст для ChatGPT")
                 return func(message_text, *args, **kwargs)
             
+            # Защита от бесконечной рекурсии и обработки системных сообщений
+            # Проверяем сообщение на признаки системного сообщения
+            is_system_message = False
+            
+            # Проверка на сообщения от бота
+            if current_update.message and current_update.message.from_user:
+                is_system_message = current_update.message.from_user.is_bot
+            
+            # Проверка на отсутствие сообщения или текста
+            if not current_update.message or not current_update.message.text:
+                is_system_message = True
+                
+            # Проверка на системные фразы
+            system_phrases = [
+                "обрабатываю запрос", 
+                "⏳",
+                "выберите язык", 
+                "выберите действие", 
+                "спросить chatgpt",
+                "тестим..."
+            ]
+            
+            message_lower = message_text.lower() if isinstance(message_text, str) else ""
+            if any(phrase in message_lower for phrase in system_phrases):
+                is_system_message = True
+            
+            # Если это системное сообщение, прекращаем обработку
+            if is_system_message:
+                logging.info(f"ChatGPT: пропускаем системное сообщение: '{message_text[:30]}...'")
+                return func(message_text, *args, **kwargs)
+            
+            # Защита от рекурсии через флаг обработки
+            if hasattr(current_context, 'user_data'):
+                if 'chatgpt_in_progress' in current_context.user_data and current_context.user_data['chatgpt_in_progress']:
+                    logging.warning("Обнаружен рекурсивный вызов ChatGPT. Пропускаем.")
+                    return func(message_text, *args, **kwargs)
+                # Устанавливаем флаг обработки
+                current_context.user_data['chatgpt_in_progress'] = True
+            
             user_id = current_update.effective_user.id
             chat_id = current_update.effective_chat.id
             
@@ -287,11 +326,22 @@ def chatgpt(instruction: str):
             if hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
                 user_language = current_context.user_data['language']
             
-            # Отправляем сообщение о начале обработки запроса
-            await current_context.bot.send_message(
-                chat_id=chat_id,
-                text="⏳ Обрабатываю запрос..."
-            )
+            # Отправляем сообщение о начале обработки запроса - НОВЫЙ ПОДХОД
+            message_sent = False
+            processing_message = None
+            
+            try:
+                # Отправляем сообщение только если оно еще не было отправлено
+                if not hasattr(current_context, '_chatgpt_processing_message'):
+                    processing_message = await current_context.bot.send_message(
+                        chat_id=chat_id,
+                        text="⏳ Обрабатываю запрос..."
+                    )
+                    # Сохраняем ссылку на сообщение в контексте
+                    current_context._chatgpt_processing_message = processing_message
+                    message_sent = True
+            except Exception as e:
+                logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
             
             try:
                 # Получаем историю сообщений пользователя
@@ -341,6 +391,22 @@ def chatgpt(instruction: str):
                     chat_id=chat_id,
                     text=f"Произошла ошибка: {e}"
                 )
+            finally:
+                # Удаляем сообщение об обработке запроса
+                if current_context and hasattr(current_context, '_chatgpt_processing_message'):
+                    try:
+                        await current_context.bot.delete_message(
+                            chat_id=chat_id,
+                            message_id=current_context._chatgpt_processing_message.message_id
+                        )
+                        # Удаляем ссылку на сообщение
+                        delattr(current_context, '_chatgpt_processing_message')
+                    except Exception as e:
+                        logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
+                
+                # Сбрасываем флаг обработки
+                if hasattr(current_context, 'user_data'):
+                    current_context.user_data['chatgpt_in_progress'] = False
             
             return func(message_text, *args, **kwargs)
         

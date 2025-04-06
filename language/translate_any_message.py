@@ -4,22 +4,25 @@ import aiohttp
 import json
 from typing import Optional
 
-# # Импортируем конфигурацию OpenAI
-# try:
-#     from credentials.openai.config import (
-#         OPENAI_API_KEY,
-#         MODEL_NAME,
-#         TEMPERATURE,
-#         MAX_TOKENS
-#     )
-#     logging.info(f"Загружена конфигурация OpenAI. API ключ {'задан' if OPENAI_API_KEY else 'не задан'}")
-# except ImportError:
-#     logging.warning("Не удалось загрузить конфигурацию OpenAI, используем значения по умолчанию")
-#     # Если конфигурации нет, используем значения по умолчанию
-#     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-#     MODEL_NAME = "gpt-3.5-turbo-0125"
-#     TEMPERATURE = 0.3
-#     MAX_TOKENS = 1000
+# Задаем значения по умолчанию
+OPENAI_API_KEY = None
+MODEL_NAME = "gpt-3.5-turbo-0125"
+TEMPERATURE = 0.3
+MAX_TOKENS = 1000
+
+# Импортируем конфигурацию OpenAI
+try:
+    from credentials.openai.config import API_KEY
+    OPENAI_API_KEY = API_KEY
+    logging.info(f"Загружена конфигурация OpenAI. API ключ {'задан' if OPENAI_API_KEY else 'не задан'}")
+except ImportError:
+    logging.warning("Не удалось загрузить конфигурацию OpenAI, используем значения по умолчанию")
+    # Пробуем получить из переменных окружения
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    if OPENAI_API_KEY:
+        logging.info("API ключ OpenAI загружен из переменных окружения")
+    else:
+        logging.warning("API ключ OpenAI не найден ни в конфигурации, ни в переменных окружения")
 
 # Словарь соответствия языков для translate
 LANGUAGE_CODES = {
@@ -69,6 +72,10 @@ async def translate_with_translate(text: str, target_language: str) -> Optional[
         target_lang_code = LANGUAGE_CODES.get(target_language, "en")
         logging.info(f"Используем translate для перевода на {target_language} (код: {target_lang_code})")
         
+        # Отладочный вывод: проверяем переданный язык и код
+        print(f"Перевод на язык: {target_language}, код языка: {target_lang_code}")
+        
+        # Создаем переводчик
         translator = Translator(to_lang=target_lang_code, from_lang="ru")
         result = translator.translate(text)
         
@@ -123,60 +130,9 @@ async def translate_any_message(
     # Пробуем перевести с помощью доступных методов
     translated_text = None
     
-    # Сначала пробуем OpenAI, если есть ключ API
-    if OPENAI_API_KEY:
-        try:
-            logging.info(f"Пробуем перевод через OpenAI API")
-            
-            async with aiohttp.ClientSession() as session:
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {OPENAI_API_KEY}"
-                }
-                
-                data = {
-                    "model": MODEL_NAME,
-                    "messages": [
-                        {
-                            "role": "system", 
-                            "content": f"You are a professional translator. Translate the following text from {source_language} to {target_language}. Only return the translated text without any explanations or additional information."
-                        },
-                        {
-                            "role": "user",
-                            "content": message
-                        }
-                    ],
-                    "temperature": TEMPERATURE,
-                    "max_tokens": MAX_TOKENS
-                }
-                
-                logging.debug(f"Отправляем запрос к API OpenAI с моделью {MODEL_NAME}")
-                async with session.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers=headers,
-                    json=data
-                ) as response:
-                    if response.status != 200:
-                        error_text = await response.text()
-                        logging.error(f"Ошибка API ChatGPT: {response.status}, {error_text}")
-                    else:
-                        response_data = await response.json()
-                        translated_text = response_data["choices"][0]["message"]["content"].strip()
-                        logging.info(f"Перевод через OpenAI выполнен успешно")
-                    
-        except aiohttp.ClientError as e:
-            logging.error(f"Ошибка сети при обращении к API OpenAI: {str(e)}")
-        except json.JSONDecodeError as e:
-            logging.error(f"Ошибка при разборе ответа OpenAI API: {str(e)}")
-        except Exception as e:
-            logging.error(f"Неожиданная ошибка при переводе через OpenAI: {str(e)}")
-    else:
-        logging.warning("OPENAI_API_KEY не задан, пропускаем перевод через OpenAI")
-    
-    # Если OpenAI не сработал (ошибка или нет ключа), используем translate
-    if not translated_text:
-        logging.info("Используем запасной вариант для перевода: translate")
-        translated_text = await translate_with_translate(message, target_language)
+    # ИЗМЕНЕНО: Сразу используем библиотеку translate, пропускаем OpenAI для надежности
+    logging.info("Используем библиотеку translate для перевода")
+    translated_text = await translate_with_translate(message, target_language)
     
     # Если все методы перевода не сработали, возвращаем исходный текст
     if not translated_text:

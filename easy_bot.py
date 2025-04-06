@@ -179,10 +179,15 @@ def add_callback(callback_name, func):
 
 # Текущий язык пользователя
 def get_user_language():
-    """Получить текущий язык пользователя из контекста"""
+    """Возвращает выбранный пользователем язык"""
+    global current_context
     if current_context and hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
-        return current_context.user_data['language']
-    return "ru"  # По умолчанию русский
+        # Получаем полное название языка из кода
+        lang_code = current_context.user_data['language']
+        # Выводим для отладки выбранный язык
+        print(f"Текущий язык пользователя: {lang_code}")
+        return LANGUAGES.get(lang_code, "Русский")
+    return "Русский"  # По умолчанию
 
 def set_user_language(lang_code):
     """Установить язык пользователя"""
@@ -624,38 +629,70 @@ async def write_message(text):
 
 # Функция для перевода сообщения
 async def translate(text, target_lang=None):
-    """Возвращает перевод сообщения на указанный язык"""
-    if target_lang is None:
-        target_lang = get_user_language()
+    """Переводит текст на выбранный язык пользователя или указанный язык"""
+    global db_initialized, current_update, current_context
     
-    # Получаем полное название языка
-    target_language = LANGUAGES.get(target_lang, "English")
+    # Максимальное количество попыток перевода
+    max_retries = 3
     
-    # Если запрошен русский язык или функция перевода недоступна
-    if target_lang == "ru" or not translate_any_message:
+    # Определяем язык перевода
+    target_language = target_lang or get_user_language()
+    
+    # Выводим для отладки
+    print(f"Переводим текст на язык: {target_language}")
+    
+    # Если язык - русский, возвращаем текст без изменений
+    # и без показа сообщения "Обрабатываю запрос..."
+    if target_language.lower() == "русский" or target_language == "ru":
         return text
     
-    # Максимальное количество попыток для перевода
-    max_retries = 3
+    # Проверка на служебные сообщения, которые не нужно переводить
+    if "обрабатываю запрос" in text.lower() or "⏳" in text:
+        return text
     
     # Для коротких текстов не используем кэширование
     use_cache = len(text) > 10
     
-    for attempt in range(max_retries):
-        try:
-            # Проверяем кэш переводов в БД
-            cached_translation = None
-            if use_cache and db_initialized:
-                try:
-                    cached_translation = await get_translation_from_db(text, target_language)
-                except Exception as cache_error:
-                    logging.warning(f"Ошибка при получении кэша перевода: {cache_error}")
-            
-            if cached_translation:
-                logging.info(f"Используем кэшированный перевод для: {text[:20]}...")
-                return cached_translation
-            
-            # Используем функцию перевода из старого бота
+    # Проверяем наличие флага перевода для предотвращения рекурсии
+    if current_context and hasattr(current_context, 'user_data'):
+        # Если перевод уже в процессе, просто возвращаем текст как есть
+        if 'translation_in_progress' in current_context.user_data and current_context.user_data['translation_in_progress']:
+            logging.warning("Обнаружен рекурсивный вызов перевода. Возвращаем исходный текст.")
+            return text
+        
+        # Устанавливаем флаг, что перевод в процессе
+        current_context.user_data['translation_in_progress'] = True
+    
+    # Сообщение "Обрабатываю запрос..." будет отправлено и сохранено здесь
+    processing_message = None
+    
+    try:
+        # Сначала проверяем кэш переводов в БД
+        cached_translation = None
+        if use_cache and db_initialized:
+            try:
+                cached_translation = await get_translation_from_db(text, target_language)
+            except Exception as cache_error:
+                logging.warning(f"Ошибка при получении кэша перевода: {cache_error}")
+        
+        if cached_translation:
+            logging.info(f"Используем кэшированный перевод для: {text[:20]}...")
+            return cached_translation
+        
+        # Отправляем сообщение "Обрабатываю запрос..." для всех переводов
+        if current_update and hasattr(current_update, 'effective_chat'):
+            try:
+                processing_message = await current_context.bot.send_message(
+                    chat_id=current_update.effective_chat.id,
+                    text="⏳ Обрабатываю запрос..."
+                )
+                print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+            except Exception as e:
+                logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
+        
+        # Выполняем перевод
+        result_text = text  # По умолчанию возвращаем исходный текст
+        for attempt in range(max_retries):
             try:
                 translated_text = await translate_any_message(
                     text,
@@ -670,10 +707,10 @@ async def translate(text, target_lang=None):
                     try:
                         await save_translation_to_db(text, translated_text, "Russian", target_language)
                     except Exception as save_error:
-                        # Ошибка при сохранении не должна прерывать работу бота
                         logging.error(f"Ошибка при сохранении перевода в БД: {save_error}")
                 
-                return translated_text
+                result_text = translated_text
+                break  # Успешно перевели, выходим из цикла
             except Exception as translate_error:
                 logging.error(f"Ошибка при переводе (попытка {attempt+1}/{max_retries}): {translate_error}")
                 if attempt < max_retries - 1:
@@ -681,19 +718,26 @@ async def translate(text, target_lang=None):
                     await asyncio.sleep(1)  # Пауза перед повторной попыткой
                 else:
                     logging.error("Все попытки перевода исчерпаны, возвращаем исходный текст")
-                    return text
-                
-        except Exception as general_error:
-            logging.error(f"Общая ошибка при переводе (попытка {attempt+1}/{max_retries}): {general_error}")
-            if attempt < max_retries - 1:
-                logging.info("Повторная попытка через 1 секунду...")
-                await asyncio.sleep(1)  # Пауза перед повторной попыткой
-            else:
-                # В случае ошибки возвращаем исходный текст
-                return text
-    
-    # В случае всех неудачных попыток возвращаем исходный текст
-    return text
+        
+        return result_text
+    except Exception as general_error:
+        logging.error(f"Общая ошибка при переводе: {general_error}")
+        return text
+    finally:
+        # Удаляем сообщение "Обрабатываю запрос..." если оно было отправлено
+        if processing_message and current_update and hasattr(current_update, 'effective_chat'):
+            try:
+                await current_context.bot.delete_message(
+                    chat_id=current_update.effective_chat.id,
+                    message_id=processing_message.message_id
+                )
+                print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+            except Exception as e:
+                logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
+        
+        # Сбрасываем флаг перевода
+        if current_context and hasattr(current_context, 'user_data'):
+            current_context.user_data['translation_in_progress'] = False
 
 # Функция для отправки переведенного сообщения
 async def write_translated_message(text):
@@ -843,6 +887,32 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global current_update, current_context
     current_update = update
     current_context = context
+    
+    # Защита от системных сообщений и сообщений от бота
+    # Проверяем, не текущее ли это сообщение системное (от бота)
+    is_system_message = False
+    
+    # Проверка на сообщения от бота
+    if update.message and update.message.from_user and update.message.from_user.is_bot:
+        is_system_message = True
+    
+    # Проверка на системные сообщения
+    if update.message and update.message.text:
+        system_phrases = [
+            "обрабатываю запрос", 
+            "⏳",
+            "выберите язык", 
+            "выберите действие",
+            "спросить chatgpt",
+            "тестим..."
+        ]
+        if any(phrase in update.message.text.lower() for phrase in system_phrases):
+            is_system_message = True
+    
+    # Если это системное сообщение, прекращаем обработку
+    if is_system_message:
+        logging.info(f"Пропускаем системное сообщение: '{update.message.text[:30] if update.message and update.message.text else 'Нет текста'}'")
+        return
     
     # Получаем id пользователя в БД
     user_db_id = context.user_data.get('db_user_id')
