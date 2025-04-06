@@ -957,6 +957,10 @@ def callback(callback_data):
         async def async_wrapper(*args, **kwargs):
             print(f"[CALLBACK] Executing callback {callback_data} with args: {args} and kwargs: {kwargs}")
             try:
+                # Автоматически обновляем глобальный chat_id при вызове callback
+                global chat_id
+                chat_id = get_chat_id_from_update()
+                
                 # Если args содержит позиционные аргументы, но функция их не ожидает,
                 # преобразуем их в именованные параметры
                 if args and not kwargs:
