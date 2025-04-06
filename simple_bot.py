@@ -111,6 +111,7 @@ def handle_chatgpt_message(message_text):
 @callback("create_notification")
 def start_notification_creation():
     auto_write_translated_message("Давайте создадим уведомление.")
+    
     survey_id = "notification_survey"
     questions = [
         ["Введите дату и время уведомления (ДД.ММ.ГГ ЧЧ:ММ, например 31.03.25 16:17)", "дата+время"],
@@ -126,39 +127,6 @@ def process_notification(answers=None, update=None, context=None):
     notification_datetime = answers[0]
     notification_text = answers[1]
     create_notification(notification_datetime, notification_text, current_upd, current_ctx)
-
-@callback("multi_survey")
-def run_multiple_surveys():
-    auto_write_translated_message("Запускаем несколько опросов подряд...")
-    
-    survey_id1 = "advanced_survey"
-    questions1 = [
-        ["Как вас зовут? (Фамилия Имя)", "фио"],
-        ["Сколько вам лет?", "номер:3-100"],
-        ["Укажите дату встречи (ДД.ММ.ГГ, например 31.03.25 или 'сегодня', 'завтра')", "дата"],
-        ["Укажите время встречи (ЧЧ:ММ)", "время"],
-        ["Или укажите дату и время вместе (ДД.ММ.ГГ ЧЧ:ММ, например 31.03.25 15:30 или 'сегодня 15:30')", "дата+время"],
-        ["Введите контактный телефон", "телефон"],
-        ["Введите ссылку на ваш профиль (начиная с http:// или https://)", "ссылка"],
-        ["Вы подтверждаете правильность введенных данных? (да/нет)", "подтверждение"]
-    ]
-    start_custom_survey(questions1, "action", survey_id1)
-    
-    survey_id2 = "my_surv"
-    questions2 = [
-        ["Сколько вам лет?", "номер:3-100"],
-        ["Как вас зовут?", "текст"],
-        ["Как настроение?", "текст"],
-        ["Как бы вы хотели со мной взаимодействовать?", [
-            [["Информация", "info_choice"], ["Помощь", "help_choice"]],
-            ["Пройти опрос", "survey_choice"],
-            [["О боте", "about_choice"], ["Выход", "exit_choice"]]
-        ]]
-    ]
-    create_survey(questions2, after="action", survey_id=survey_id2)
-    
-    auto_write_translated_message("Опросы запущены! Следующий опрос начнется после завершения текущего.")
-
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
