@@ -1,4 +1,4 @@
-from .survey import survey, create_survey, get_survey_results, handle_survey_response
+from .survey import survey, create_survey, get_survey_results, handle_survey_response, start_survey
 
 # Специальная версия декоратора survey для функций без return
 def auto_survey(survey_id):
@@ -45,4 +45,4 @@ def auto_survey(survey_id):
         return wrapper
     return decorator
 
-__all__ = ['survey', 'create_survey', 'get_survey_results', 'handle_survey_response', 'auto_survey'] 
+__all__ = ['survey', 'create_survey', 'get_survey_results', 'handle_survey_response', 'auto_survey', 'start_survey'] 

@@ -756,4 +756,68 @@ def _store_survey(survey_id, survey_data):
         survey_data: Данные опроса
     """
     _last_created_surveys[survey_id] = survey_data
-    return survey_data 
+    return survey_data
+
+async def start_survey(survey_id, chat_id, context=None, update=None):
+    """
+    Запускает опрос непосредственно для указанного пользователя.
+    Это функция для прямого запуска опроса без использования декораторов.
+    
+    Args:
+        survey_id: Идентификатор опроса
+        chat_id: ID чата, в котором нужно запустить опрос
+        context: Объект контекста Telegram (если None, используется current_context)
+        update: Объект обновления Telegram (если None, используется current_update)
+        
+    Returns:
+        bool: True, если опрос запущен успешно, False в противном случае
+    """
+    import logging
+    logger = logging.getLogger('survey')
+    
+    # Используем текущий контекст, если не указан явно
+    if context is None:
+        from easy_bot import current_context
+        context = current_context
+    
+    # Проверяем наличие контекста
+    if context is None:
+        logger.error("Не удалось запустить опрос: контекст не определен")
+        return False
+
+    # Получаем данные пользователя
+    user_id = None
+    if update and update.effective_user:
+        user_id = update.effective_user.id
+    elif context.user_data and hasattr(context, 'user_id'):
+        user_id = context.user_id
+    else:
+        from easy_bot import current_update
+        if current_update and current_update.effective_user:
+            user_id = current_update.effective_user.id
+    
+    if user_id is None:
+        logger.error("Не удалось запустить опрос: не определен ID пользователя")
+        return False
+    
+    # Получаем данные опроса
+    survey_data = get_last_created_survey(survey_id)
+    if not survey_data:
+        logger.error(f"Не удалось запустить опрос: опрос с ID {survey_id} не найден")
+        return False
+    
+    # Сохраняем опрос как активный для этого пользователя
+    _active_surveys[user_id] = {
+        'survey_id': survey_id,
+        'data': survey_data
+    }
+    
+    # Задаем первый вопрос
+    if survey_data.get('questions'):
+        import asyncio
+        logger.info(f"Запуск опроса {survey_id} для пользователя {user_id} в чате {chat_id}")
+        await ask_next_question(context, chat_id, survey_data)
+        return True
+    else:
+        logger.error(f"Не удалось запустить опрос: опрос {survey_id} не содержит вопросов")
+        return False 

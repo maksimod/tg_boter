@@ -12,7 +12,11 @@ __all__ = [
     'on_text_message', 'translate',
     # Новые авто-функции
     'auto_write_translated_message', 'auto_button', 'auto_message_with_buttons',
-    'start', 'callback', 'on_auto_text_message', 'auto_translate'
+    'start', 'callback', 'on_auto_text_message', 'auto_translate',
+    'get_chat_id_from_update',
+    'callbacks',
+    'current_update',
+    'current_context'
 ]
 
 # Импортируем функцию перевода
@@ -1203,3 +1207,40 @@ def register_chatgpt_handler(handler):
     """Регистрирует обработчик для сообщений ChatGPT"""
     global chatgpt_handler
     chatgpt_handler = handler 
+
+def get_chat_id_from_update(update=None):
+    """
+    Извлекает chat_id из объекта Update по всем возможным путям
+    
+    Args:
+        update: Объект Telegram Update (если None, используется current_update)
+        
+    Returns:
+        int: ID чата или None, если не удалось определить
+    """
+    if update is None:
+        global current_update, current_context
+        update = current_update
+    
+    chat_id = None
+    
+    if update:
+        # Путь 1: через effective_chat (самый распространенный случай)
+        if hasattr(update, 'effective_chat') and update.effective_chat:
+            chat_id = update.effective_chat.id
+        
+        # Путь 2: через callback_query.message.chat_id (для кнопок)
+        elif hasattr(update, 'callback_query') and update.callback_query and hasattr(update.callback_query, 'message') and update.callback_query.message:
+            chat_id = update.callback_query.message.chat_id
+        
+        # Путь 3: через message.chat_id (для текстовых сообщений)
+        elif hasattr(update, 'message') and update.message and hasattr(update.message, 'chat'):
+            chat_id = update.message.chat.id
+    
+    # Если не получили chat_id, пробуем получить из контекста
+    if chat_id is None and current_context and hasattr(current_context, 'chat_data'):
+        chat_ids = list(current_context.chat_data.keys())
+        if chat_ids:
+            chat_id = chat_ids[0]
+    
+    return chat_id 
