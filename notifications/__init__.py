@@ -38,6 +38,9 @@ from notifications.reminders import create_reminder, get_reminders
 # Export notification parsing functions
 from notifications.notification_parser import process_notification_request
 
+# Export notification manager functions
+from notifications.notification_manager import create_notification
+
 # Export bot management functions
 from notifications.bot_manager import init_bot, get_bot_app
 
@@ -142,5 +145,6 @@ _delayed_start_processor()
 __all__ = [
     'process_notification_request', 'create_reminder', 'get_reminders',
     'check_notifications', 'scheduled_job', 'fix_timezones',
-    'init_bot', 'get_bot_app', 'start_processor', 'check_processor_running'
+    'init_bot', 'get_bot_app', 'start_processor', 'check_processor_running',
+    'create_notification'
 ] 

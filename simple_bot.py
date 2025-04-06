@@ -4,17 +4,14 @@ from easy_bot import (
     auto_message_with_buttons, 
     start, 
     callback, 
-    run_bot, 
     get_user_language
 )
 from easy_bot import current_update, current_context
 from base.survey import survey, create_survey
 from chatgpt import chatgpt
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-import asyncio
-import sys
 import logging
-from notifications import process_notification_request
+from handlers.survey_handlers import process_survey_results
+from notifications.notification_manager import create_notification
 
 # Настройка логирования
 logger = logging.getLogger('simple_bot')
@@ -94,79 +91,8 @@ def advanced_survey():
 
 @callback("action")
 def action_after_survey(answers=None):
-    print(f"action_after_survey called with answers: {answers}")
-    
-    if answers is None:
-        # Вызван напрямую как callback, без аргументов
-        auto_write_translated_message("Действие после опроса")
-        auto_button([
-            ["Вернуться в меню", "back_to_menu"]
-        ])
-        return
-        
-    # Вызван с результатами опроса
-    try:
-        # Получаем ответы от пользователя
-        if len(answers) >= 8:  # Основной опрос
-            name = answers[0] if len(answers) > 0 else "не указано"
-            age = answers[1] if len(answers) > 1 else "не указан"
-            date = answers[2] if len(answers) > 2 else "не указана"
-            time = answers[3] if len(answers) > 3 else "не указано"
-            datetime_val = answers[4] if len(answers) > 4 else "не указаны"
-            phone = answers[5] if len(answers) > 5 else "не указан"
-            url = answers[6] if len(answers) > 6 else "не указан"
-            confirm = answers[7] if len(answers) > 7 else "не указано"
-            choice = answers[8] if len(answers) > 8 else "не сделан"
-            
-            message = (
-                f"Спасибо за заполнение анкеты!\n\n"
-                f"ФИО: {name}\n"
-                f"Возраст: {age}\n"
-                f"Дата встречи: {date}\n"
-                f"Время встречи: {time}\n"
-                f"Дата и время: {datetime_val}\n"
-                f"Телефон: {phone}\n"
-                f"Ссылка: {url}\n"
-                f"Подтверждение: {confirm}\n"
-                f"Выбор: {choice}"
-            )
-        else:  # Простой опрос с тремя вопросами
-            age = answers[0] if len(answers) > 0 else "не указан"
-            name = answers[1] if len(answers) > 1 else "не указано"
-            mood = answers[2] if len(answers) > 2 else "не указано"
-            interaction = answers[3] if len(answers) > 3 else "не указан"
-            
-            message = f"Спасибо за ответы! Ваш возраст: {age}, имя: {name}, настроение: {mood}, предпочтение: {interaction}"
-            
-        print(f"Sending survey results: {message}")
-        
-        if current_update and current_context:
-            chat_id = current_update.effective_chat.id
-            # Отправляем сообщение напрямую
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text=message
-            ))
-            
-            # Отправляем кнопку "Вернуться в меню"
-            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text="Выберите действие:",
-                reply_markup=reply_markup
-            ))
-    except Exception as e:
-        print(f"Ошибка при обработке результатов опроса: {e}")
-        if current_update and current_context:
-            chat_id = current_update.effective_chat.id
-            asyncio.create_task(current_context.bot.send_message(
-                chat_id=chat_id,
-                text=f"Произошла ошибка при обработке результатов опроса: {e}"
-            ))
-    
-    # Дополнительная проверка в конце функции
-    print("action_after_survey полностью выполнена!")
+    # Делегируем обработку результатов опроса в специализированный модуль
+    return process_survey_results(answers, current_update, current_context)
 
 @survey("my_surv")
 def my_surv():
@@ -213,118 +139,21 @@ def process_notification(answers=None, update=None, context=None):
         ])
         return
     
-    try:
-        # Получаем ответы из опроса
+    # Используем переданные update и context, если они доступны
+    current_upd = update or current_update
+    current_ctx = context or current_context
+    
+    # Передаем обработку уведомления в специализированный модуль
+    if len(answers) >= 2:
         notification_datetime = answers[0]
         notification_text = answers[1]
-        
-        # Получаем ID пользователя для уведомления
-        user_id = None
-        chat_id = None
-        
-        # Используем переданные update и context, если они доступны
-        current_upd = update or current_update
-        current_ctx = context or current_context
-        
-        if current_upd:
-            try:
-                user_id = current_upd.effective_user.id
-                chat_id = current_upd.effective_chat.id
-                print(f"DEBUG: Получен user_id={user_id}, chat_id={chat_id}")
-            except Exception as e:
-                print(f"DEBUG: Ошибка при получении user_id: {e}")
-        
-        # Если не удалось получить user_id, используем chat_id
-        if not user_id and chat_id:
-            print(f"DEBUG: Используем chat_id={chat_id} в качестве user_id")
-            user_id = chat_id
-            
-        # Принудительное получение chat_id, если еще нет
-        if not chat_id and current_ctx and current_upd:
-            chat_id = current_upd.effective_chat.id
-            print(f"DEBUG: Принудительно получен chat_id={chat_id}")
-            if not user_id:
-                user_id = chat_id
-                print(f"DEBUG: Устанавливаем user_id={user_id} равным chat_id")
-        
-        if not user_id:
-            print("DEBUG: Не удалось определить user_id или chat_id")
-            auto_write_translated_message("Ошибка: не удалось определить ID пользователя.")
-            auto_button([
-                ["Вернуться в меню", "back_to_menu"]
-            ])
-            return
-            
-        print(f"DEBUG: Создание уведомления для user_id={user_id}, дата={notification_datetime}, текст={notification_text}")
-        # Используем функцию из модуля notifications для обработки запроса
-        success = process_notification_request(notification_datetime, notification_text, current_upd, current_ctx)
-        
-        if not success and current_upd and current_ctx:
-            # Если произошла ошибка и есть доступ к боту, отправляем сообщение
-            chat_id = current_upd.effective_chat.id
-            asyncio.create_task(current_ctx.bot.send_message(
-                chat_id=chat_id,
-                text="Произошла ошибка при создании уведомления. Пожалуйста, проверьте формат даты и времени."
-            ))
-            
-            # Отправляем кнопку возврата в меню
-            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(current_ctx.bot.send_message(
-                chat_id=chat_id,
-                text="Выберите действие:",
-                reply_markup=reply_markup
-            ))
-            
-    except Exception as e:
-        print(f"Ошибка при обработке уведомления: {e}")
-        cur_upd = update or current_update
-        cur_ctx = context or current_context
-        if cur_upd and cur_ctx:
-            chat_id = cur_upd.effective_chat.id
-            asyncio.create_task(cur_ctx.bot.send_message(
-                chat_id=chat_id,
-                text=f"Произошла ошибка при создании уведомления: {e}"
-            ))
-            
-            # Отправляем кнопку возврата в меню
-            keyboard = [[InlineKeyboardButton("Вернуться в меню", callback_data="back_to_menu")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            asyncio.create_task(cur_ctx.bot.send_message(
-                chat_id=chat_id,
-                text="Выберите действие:",
-                reply_markup=reply_markup
-            ))
+        create_notification(notification_datetime, notification_text, current_upd, current_ctx)
 
 # Запуск бота
 if __name__ == "__main__":
-    try:
-        # Получаем экземпляр бота без запуска
-        logger.info("Получение экземпляра бота...")
-        from easy_bot import get_bot_instance, run_bot
-        app = get_bot_instance()
-        
-        if app is None:
-            logger.error("Не удалось получить экземпляр бота")
-            sys.exit(1)
-        
-        # Передаем экземпляр бота в модуль уведомлений
-        logger.info("Передача экземпляра бота в модуль уведомлений...")
-        try:
-            from notifications.bot_manager import set_bot_app
-            if set_bot_app(app):
-                logger.info("Экземпляр бота успешно передан в модуль уведомлений")
-            else:
-                logger.error("Не удалось передать экземпляр бота в модуль уведомлений")
-        except Exception as e:
-            logger.error(f"Ошибка при передаче экземпляра бота: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-        
-        # Теперь запускаем бота
-        logger.info("Запуск основного бота...")
-        run_bot()
-    except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}")
-        import traceback
-        logger.error(traceback.format_exc()) 
+    from base.bot_init import initialize_bot
+    # Инициализируем и запускаем бота
+    if not initialize_bot():
+        logger.error("Не удалось запустить бота")
+        import sys
+        sys.exit(1) 
