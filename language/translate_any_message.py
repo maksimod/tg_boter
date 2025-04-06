@@ -4,22 +4,22 @@ import aiohttp
 import json
 from typing import Optional
 
-# Импортируем конфигурацию OpenAI
-try:
-    from credentials.openai.config import (
-        OPENAI_API_KEY,
-        MODEL_NAME,
-        TEMPERATURE,
-        MAX_TOKENS
-    )
-    logging.info(f"Загружена конфигурация OpenAI. API ключ {'задан' if OPENAI_API_KEY else 'не задан'}")
-except ImportError:
-    logging.warning("Не удалось загрузить конфигурацию OpenAI, используем значения по умолчанию")
-    # Если конфигурации нет, используем значения по умолчанию
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-    MODEL_NAME = "gpt-3.5-turbo-0125"
-    TEMPERATURE = 0.3
-    MAX_TOKENS = 1000
+# # Импортируем конфигурацию OpenAI
+# try:
+#     from credentials.openai.config import (
+#         OPENAI_API_KEY,
+#         MODEL_NAME,
+#         TEMPERATURE,
+#         MAX_TOKENS
+#     )
+#     logging.info(f"Загружена конфигурация OpenAI. API ключ {'задан' if OPENAI_API_KEY else 'не задан'}")
+# except ImportError:
+#     logging.warning("Не удалось загрузить конфигурацию OpenAI, используем значения по умолчанию")
+#     # Если конфигурации нет, используем значения по умолчанию
+#     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+#     MODEL_NAME = "gpt-3.5-turbo-0125"
+#     TEMPERATURE = 0.3
+#     MAX_TOKENS = 1000
 
 # Словарь соответствия языков для translate
 LANGUAGE_CODES = {

@@ -10,8 +10,17 @@ def start():
         ["Пройти опрос", "start_survey"],
         ["Спросить ChatGPT", "ask_chatgpt"],
         ["Создать уведомление", "create_notification"],
+        ["Гугл", "google_test"],
         [["О боте", "about"], ["Выход", "exit"]]
     ])
+
+@callback("google_test")
+def google_test():
+    auto_write_translated_message("Тестим...")
+    async def get_google_data(): 
+        result = await google_sheets('1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
+        print(result)
+    asyncio.create_task(get_google_data())
 
 @callback("info")
 def info():

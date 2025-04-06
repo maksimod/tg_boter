@@ -14,6 +14,7 @@ import logging
 from handlers.survey_handlers import process_survey_results
 from notifications.notification_manager import create_notification
 import asyncio
+from google import get_sheets as google_sheets
 
 # Экспортируем все импортированные имена
 __all__ = [
@@ -32,5 +33,6 @@ __all__ = [
     'logging',
     'process_survey_results',
     'create_notification',
-    'asyncio'
+    'asyncio',
+    'google_sheets'
 ] 
