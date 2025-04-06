@@ -951,8 +951,21 @@ def callback(callback_data):
     """
     def decorator(func):
         async def async_wrapper(*args, **kwargs):
-            print(f"[CALLBACK] Executing callback {callback_data} with args: {args}")
+            print(f"[CALLBACK] Executing callback {callback_data} with args: {args} and kwargs: {kwargs}")
             try:
+                # Если args содержит позиционные аргументы, но функция их не ожидает,
+                # преобразуем их в именованные параметры
+                if args and not kwargs:
+                    import inspect
+                    sig = inspect.signature(func)
+                    params = list(sig.parameters.keys())
+                    
+                    # Проверяем сигнатуру функции и конвертируем позиционные аргументы в именованные
+                    if len(params) == len(args) and all(param != 'args' for param in params):
+                        kwargs = dict(zip(params, args))
+                        args = ()
+                
+                # Вызываем функцию с правильными аргументами
                 result = func(*args, **kwargs)
                 print(f"[CALLBACK] Function {callback_data} returned: {result}")
                 

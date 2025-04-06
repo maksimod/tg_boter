@@ -4,6 +4,7 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 import random
+import logging
 
 # Global variables to store survey data
 _surveys = {}
@@ -637,31 +638,69 @@ async def ask_next_question(context, chat_id, survey_data):
 
 async def finish_survey(context, chat_id, user_id, survey_data):
     """Завершает опрос и вызывает callback функцию"""
+    logger = logging.getLogger('survey')
+    
+    logger.info(f"Survey complete, sending completion message to chat_id {chat_id}")
     print(f"Survey complete, sending completion message to chat_id {chat_id}")
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text="Спасибо за ваши ответы!"
-    )
+    
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="Спасибо за ваши ответы!"
+        )
+    except Exception as e:
+        logger.error(f"Error sending completion message: {str(e)}")
+        print(f"Error sending completion message: {str(e)}")
     
     # Call the after callback if available
     after_callback = survey_data.get('after_callback')
+    logger.info(f"Survey complete, calling callback: {after_callback}")
     print(f"Survey complete, calling callback: {after_callback}")
     
     if after_callback:
-        from easy_bot import callbacks, current_update, current_context
-        if after_callback in callbacks:
-            callback_func = callbacks[after_callback]
-            try:
-                # Используем await для вызова асинхронной функции и передаем current_update и current_context
-                await callback_func(survey_data['answers'], current_update, current_context)
-                print(f"Callback {after_callback} executed successfully")
-            except Exception as e:
-                print(f"Error in callback {after_callback}: {e}")
-        else:
-            print(f"Callback {after_callback} not found in registered callbacks")
+        try:
+            from easy_bot import callbacks, current_update, current_context
+            logger.info(f"Imported callbacks module, found callbacks: {list(callbacks.keys())}")
+            print(f"Imported callbacks module, found callbacks: {list(callbacks.keys())}")
+            
+            if after_callback in callbacks:
+                callback_func = callbacks[after_callback]
+                logger.info(f"Found callback function: {callback_func}")
+                print(f"Found callback function: {callback_func}")
+                
+                try:
+                    logger.info(f"Calling callback with answers={len(survey_data['answers'])} items, update={current_update is not None}, context={current_context is not None}")
+                    print(f"Calling callback with answers={len(survey_data['answers'])} items, update={current_update is not None}, context={current_context is not None}")
+                    
+                    # Важно! Используем именованные аргументы вместо позиционных
+                    await callback_func(answers=survey_data['answers'], update=current_update, context=current_context)
+                    
+                    logger.info(f"Callback {after_callback} executed successfully")
+                    print(f"Callback {after_callback} executed successfully")
+                except Exception as e:
+                    logger.error(f"Error in callback {after_callback}: {str(e)}")
+                    print(f"Error in callback {after_callback}: {str(e)}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    traceback.print_exc()
+            else:
+                logger.warning(f"Callback {after_callback} not found in registered callbacks")
+                print(f"Callback {after_callback} not found in registered callbacks")
+        except Exception as e:
+            logger.error(f"Error importing callbacks: {str(e)}")
+            print(f"Error importing callbacks: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            traceback.print_exc()
     
     # Clear the active survey
-    del _active_surveys[user_id]
+    try:
+        del _active_surveys[user_id]
+        logger.info(f"Cleared active survey for user {user_id}")
+        print(f"Cleared active survey for user {user_id}")
+    except Exception as e:
+        logger.error(f"Error clearing active survey: {str(e)}")
+        print(f"Error clearing active survey: {str(e)}")
 
 def get_survey_results(survey_id: str) -> List:
     """

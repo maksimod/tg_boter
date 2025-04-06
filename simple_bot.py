@@ -7,7 +7,7 @@ from easy_bot import (
     get_user_language
 )
 from easy_bot import current_update, current_context
-from base.survey import auto_survey, create_survey
+from base.survey import auto_survey, create_survey, survey
 from chatgpt import chatgpt
 import logging
 from handlers.survey_handlers import process_survey_results
@@ -87,8 +87,31 @@ def advanced_survey():
     ], after="action", survey_id="advanced_survey")
 
 @callback("action")
-def action_after_survey(answers=None):
-    process_survey_results(answers, current_update, current_context)
+def action_after_survey(answers=None, update=None, context=None):
+    """
+    Обрабатывает результаты опроса
+    Вызывается после завершения опроса с результатами
+    """
+    try:
+        from handlers.survey_handlers import process_survey_results
+        import asyncio
+        from easy_bot import current_update, current_context
+        
+        # Используем текущие update и context, если они не переданы
+        current_upd = update or current_update
+        current_ctx = context or current_context
+        
+        if current_upd and current_ctx:
+            # Запускаем асинхронную функцию process_survey_results через create_task
+            asyncio.create_task(
+                process_survey_results(answers, current_upd, current_ctx)
+            )
+        else:
+            print("Ошибка: Не удалось получить update и context для обработки результатов опроса")
+    except Exception as e:
+        print(f"Ошибка при обработке результатов опроса: {e}")
+        import traceback
+        traceback.print_exc()
 
 @auto_survey("my_surv")
 def my_surv():
@@ -146,6 +169,11 @@ def run_multiple_surveys():
     advanced_survey()
     my_surv()
     auto_write_translated_message("Опросы запущены!")
+
+@survey("main_survey")
+def start_main_survey(update, context):
+    chat_id = update.message.chat_id
+    return create_survey(survey_id="main_survey", title="Основной опрос", questions=advanced_survey.get_questions(), chat_id=chat_id, after_callback=action_after_survey)
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
