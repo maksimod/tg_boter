@@ -663,9 +663,6 @@ async def translate(text, target_lang=None):
         # Устанавливаем флаг, что перевод в процессе
         current_context.user_data['translation_in_progress'] = True
     
-    # Сообщение "Обрабатываю запрос..." будет отправлено и сохранено здесь
-    processing_message = None
-    
     try:
         # Сначала проверяем кэш переводов в БД
         cached_translation = None
@@ -678,18 +675,7 @@ async def translate(text, target_lang=None):
         if cached_translation:
             logging.info(f"Используем кэшированный перевод для: {text[:20]}...")
             return cached_translation
-        
-        # Отправляем сообщение "Обрабатываю запрос..." для всех переводов
-        if current_update and hasattr(current_update, 'effective_chat'):
-            try:
-                processing_message = await current_context.bot.send_message(
-                    chat_id=current_update.effective_chat.id,
-                    text="⏳ Обрабатываю запрос..."
-                )
-                print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
-            except Exception as e:
-                logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
-        
+                
         # Выполняем перевод
         result_text = text  # По умолчанию возвращаем исходный текст
         for attempt in range(max_retries):
@@ -724,17 +710,6 @@ async def translate(text, target_lang=None):
         logging.error(f"Общая ошибка при переводе: {general_error}")
         return text
     finally:
-        # Удаляем сообщение "Обрабатываю запрос..." если оно было отправлено
-        if processing_message and current_update and hasattr(current_update, 'effective_chat'):
-            try:
-                await current_context.bot.delete_message(
-                    chat_id=current_update.effective_chat.id,
-                    message_id=processing_message.message_id
-                )
-                print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
-            except Exception as e:
-                logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
-        
         # Сбрасываем флаг перевода
         if current_context and hasattr(current_context, 'user_data'):
             current_context.user_data['translation_in_progress'] = False
@@ -742,12 +717,69 @@ async def translate(text, target_lang=None):
 # Функция для отправки переведенного сообщения
 async def write_translated_message(text):
     """Отправляет сообщение, переведенное на язык пользователя"""
+    # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
+    target_language = get_user_language()
+    
+    # Показываем сообщение "Обрабатываю запрос..." только если:
+    # 1. Язык не русский
+    # 2. Текст достаточно длинный
+    processing_message = None
+    if target_language.lower() != "русский" and target_language != "ru" and len(text) > 10 and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            processing_message = await current_context.bot.send_message(
+                chat_id=current_update.effective_chat.id,
+                text="⏳ Обрабатываю запрос..."
+            )
+            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
+    
+    # Выполняем перевод
     translated_text = await translate(text)
-    await write_message(translated_text)
+    
+    # Отправляем переведенное сообщение
+    result_message = None
+    if current_update and current_context:
+        try:
+            if current_update.callback_query:
+                result_message = await current_update.callback_query.edit_message_text(text=translated_text)
+            else:
+                result_message = await current_update.message.reply_text(text=translated_text)
+            
+            # Небольшая пауза чтобы убедиться, что сообщение доставлено
+            await asyncio.sleep(0.2)
+        except Exception as e:
+            logging.error(f"Ошибка при отправке переведенного сообщения: {e}")
+    
+    # Удаляем сообщение "Обрабатываю запрос..." ТОЛЬКО ПОСЛЕ отправки нового сообщения
+    if processing_message and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            await current_context.bot.delete_message(
+                chat_id=current_update.effective_chat.id,
+                message_id=processing_message.message_id
+            )
+            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
 # Функция для создания кнопок
 async def button(buttons_layout):
     """Создает кнопки из простого списка"""
+    # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
+    target_language = get_user_language()
+    
+    # Отправляем сообщение "Обрабатываю запрос..." только для неуссского языка
+    processing_message = None
+    if target_language.lower() != "русский" and target_language != "ru" and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            processing_message = await current_context.bot.send_message(
+                chat_id=current_update.effective_chat.id,
+                text="⏳ Обрабатываю запрос..."
+            )
+            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
+    
     keyboard = []
     
     for row in buttons_layout:
@@ -766,20 +798,55 @@ async def button(buttons_layout):
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
+    # Отправляем результат
+    result_message = None
     if current_update and current_context:
-        if current_update.callback_query:
-            await current_update.callback_query.edit_message_reply_markup(reply_markup=reply_markup)
-        else:
-            # Переводим текст-подсказку
-            prompt = await translate("Выберите опцию:")
-            await current_update.message.reply_text(
-                text=prompt,
-                reply_markup=reply_markup
+        try:
+            if current_update.callback_query:
+                await current_update.callback_query.edit_message_reply_markup(reply_markup=reply_markup)
+            else:
+                # Переводим текст-подсказку
+                prompt = await translate("Выберите опцию:")
+                result_message = await current_update.message.reply_text(
+                    text=prompt,
+                    reply_markup=reply_markup
+                )
+            
+            # Небольшая пауза чтобы убедиться, что сообщение доставлено
+            await asyncio.sleep(0.2)
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения с кнопками: {e}")
+    
+    # Удаляем сообщение "Обрабатываю запрос..." ТОЛЬКО ПОСЛЕ отправки нового сообщения
+    if processing_message and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            await current_context.bot.delete_message(
+                chat_id=current_update.effective_chat.id,
+                message_id=processing_message.message_id
             )
+            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
 # Функция для отправки сообщения с кнопками
 async def message_with_buttons(text, buttons_layout):
     """Отправляет сообщение с кнопками"""
+    # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
+    target_language = get_user_language()
+    
+    # Отправляем сообщение "Обрабатываю запрос..." только для неуссского языка
+    # и если текст достаточно длинный
+    processing_message = None
+    if target_language.lower() != "русский" and target_language != "ru" and len(text) > 10 and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            processing_message = await current_context.bot.send_message(
+                chat_id=current_update.effective_chat.id,
+                text="⏳ Обрабатываю запрос..."
+            )
+            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
+    
     keyboard = []
     
     for row in buttons_layout:
@@ -801,17 +868,36 @@ async def message_with_buttons(text, buttons_layout):
     # Переводим текст сообщения
     translated_text = await translate(text)
     
+    # Отправляем результат
+    result_message = None
     if current_update and current_context:
-        if current_update.callback_query:
-            await current_update.callback_query.edit_message_text(
-                text=translated_text,
-                reply_markup=reply_markup
+        try:
+            if current_update.callback_query:
+                await current_update.callback_query.edit_message_text(
+                    text=translated_text,
+                    reply_markup=reply_markup
+                )
+            else:
+                result_message = await current_update.message.reply_text(
+                    text=translated_text,
+                    reply_markup=reply_markup
+                )
+            
+            # Небольшая пауза чтобы убедиться, что сообщение доставлено
+            await asyncio.sleep(0.2)  
+        except Exception as e:
+            logging.error(f"Ошибка при отправке сообщения с кнопками: {e}")
+    
+    # Удаляем сообщение "Обрабатываю запрос..." ТОЛЬКО ПОСЛЕ отправки нового сообщения
+    if processing_message and current_update and hasattr(current_update, 'effective_chat'):
+        try:
+            await current_context.bot.delete_message(
+                chat_id=current_update.effective_chat.id,
+                message_id=processing_message.message_id
             )
-        else:
-            await current_update.message.reply_text(
-                text=translated_text,
-                reply_markup=reply_markup
-            )
+            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
+        except Exception as e:
+            logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
 # Создание клавиатуры выбора языка
 def create_language_keyboard():

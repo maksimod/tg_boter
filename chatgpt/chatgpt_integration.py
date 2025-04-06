@@ -368,9 +368,11 @@ def chatgpt(instruction: str):
                 # Вызываем API ChatGPT или локальный API
                 response = await call_openai_api(messages, language=user_language)
                 
+                # Отправляем ответ пользователю
+                result_message = None
                 if response:
                     # Отправляем ответ пользователю
-                    await current_context.bot.send_message(
+                    result_message = await current_context.bot.send_message(
                         chat_id=chat_id,
                         text=response
                     )
@@ -381,18 +383,15 @@ def chatgpt(instruction: str):
                     except Exception as e:
                         logging.error(f"Ошибка при добавлении сообщения в БД: {e}")
                 else:
-                    await current_context.bot.send_message(
+                    result_message = await current_context.bot.send_message(
                         chat_id=chat_id,
                         text="К сожалению, не удалось получить ответ. Пожалуйста, попробуйте позже."
                     )
-            except Exception as e:
-                logging.error(f"Ошибка при выполнении запроса к ChatGPT: {e}")
-                await current_context.bot.send_message(
-                    chat_id=chat_id,
-                    text=f"Произошла ошибка: {e}"
-                )
-            finally:
-                # Удаляем сообщение об обработке запроса
+                
+                # Небольшая пауза чтобы убедиться, что сообщение доставлено
+                await asyncio.sleep(0.2)
+                
+                # Удаляем сообщение об обработке запроса ТОЛЬКО ПОСЛЕ получения ответа
                 if current_context and hasattr(current_context, '_chatgpt_processing_message'):
                     try:
                         await current_context.bot.delete_message(
@@ -403,7 +402,28 @@ def chatgpt(instruction: str):
                         delattr(current_context, '_chatgpt_processing_message')
                     except Exception as e:
                         logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
+            except Exception as e:
+                logging.error(f"Ошибка при выполнении запроса к ChatGPT: {e}")
+                error_message = await current_context.bot.send_message(
+                    chat_id=chat_id,
+                    text=f"Произошла ошибка: {e}"
+                )
                 
+                # Небольшая пауза чтобы убедиться, что сообщение об ошибке доставлено
+                await asyncio.sleep(0.2)
+                
+                # Удаляем сообщение об обработке запроса даже в случае ошибки
+                if current_context and hasattr(current_context, '_chatgpt_processing_message'):
+                    try:
+                        await current_context.bot.delete_message(
+                            chat_id=chat_id,
+                            message_id=current_context._chatgpt_processing_message.message_id
+                        )
+                        # Удаляем ссылку на сообщение
+                        delattr(current_context, '_chatgpt_processing_message')
+                    except Exception as e:
+                        logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
+            finally:
                 # Сбрасываем флаг обработки
                 if hasattr(current_context, 'user_data'):
                     current_context.user_data['chatgpt_in_progress'] = False
