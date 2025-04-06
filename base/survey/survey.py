@@ -3,10 +3,14 @@ from functools import wraps
 import re
 import asyncio
 from datetime import datetime, timedelta
+import random
 
 # Global variables to store survey data
 _surveys = {}
 _active_surveys = {}
+
+# Словарь для хранения последних созданных опросов по ID
+_last_created_surveys = {}
 
 # Constants for validation types
 TYPE_TEXT = "text"
@@ -392,17 +396,21 @@ def parse_validation(validation_str: str) -> Tuple[str, Optional[dict]]:
     # Default to text if no valid format is found
     return TYPE_TEXT, None
 
-def create_survey(questions: List[List], after: Optional[str] = None):
+def create_survey(questions: List[List], after: Optional[str] = None, survey_id: str = None):
     """
     Creates a survey with the given questions.
     
     Args:
         questions: List of question-validation pairs
         after: Optional callback function name to call after survey completion
+        survey_id: Identifier for the survey (required)
     
     Returns:
         Dictionary with survey data
     """
+    if survey_id is None:
+        survey_id = after
+    
     formatted_questions = []
     
     for q in questions:
@@ -423,6 +431,8 @@ def create_survey(questions: List[List], after: Optional[str] = None):
         'answers': [],
         'after_callback': after
     }
+    
+    _store_survey(survey_id, survey_data)
     
     return survey_data
 
@@ -685,3 +695,26 @@ def _run_after_callback(survey_data, answers):
         except Exception as e:
             import logging
             logging.error(f"Error running survey callback {after_callback}: {e}") 
+
+def get_last_created_survey(survey_id):
+    """
+    Возвращает последний созданный опрос с указанным ID
+    
+    Args:
+        survey_id: Идентификатор опроса
+        
+    Returns:
+        dict: Данные опроса или None, если опрос не найден
+    """
+    return _last_created_surveys.get(survey_id)
+
+def _store_survey(survey_id, survey_data):
+    """
+    Сохраняет созданный опрос в глобальный словарь
+    
+    Args:
+        survey_id: Идентификатор опроса (обязательный)
+        survey_data: Данные опроса
+    """
+    _last_created_surveys[survey_id] = survey_data
+    return survey_data 
