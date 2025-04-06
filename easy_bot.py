@@ -776,25 +776,76 @@ async def button(buttons_layout):
                 chat_id=current_update.effective_chat.id,
                 text="⏳ Обрабатываю запрос..."
             )
-            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
     
     keyboard = []
     
-    for row in buttons_layout:
-        if isinstance(row[0], list):
-            # Это строка с несколькими кнопками
-            keyboard_row = []
-            for btn in row:
-                # Переводим текст кнопки
-                btn_text = await translate(btn[0])
-                keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
-            keyboard.append(keyboard_row)
-        else:
-            # Это одна кнопка в строке
-            btn_text = await translate(row[0])
-            keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+    try:
+        # Собираем все тексты кнопок в один список для параллельного перевода
+        all_button_texts = []
+        button_positions = []  # Для отслеживания позиций кнопок
+        
+        for row_idx, row in enumerate(buttons_layout):
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                for btn_idx, btn in enumerate(row):
+                    all_button_texts.append(btn[0])
+                    button_positions.append((row_idx, btn_idx, 'multi'))
+            else:
+                # Это одна кнопка в строке
+                all_button_texts.append(row[0])
+                button_positions.append((row_idx, 0, 'single'))
+        
+        # Добавляем текст подсказки для перевода
+        all_button_texts.append("Выберите опцию:")
+        prompt_idx = len(all_button_texts) - 1  # Индекс текста подсказки
+        
+        # Выполняем параллельный перевод всех текстов
+        from language.translate_any_message import translate_multiple
+        all_translated_texts = await translate_multiple(all_button_texts, target_language)
+        
+        # Создаем кнопки с переведенными текстами
+        keyboard = []
+        for row_idx, row in enumerate(buttons_layout):
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                keyboard_row = []
+                for btn_idx, btn in enumerate(row):
+                    # Находим индекс в переведенных текстах
+                    text_idx = button_positions.index((row_idx, btn_idx, 'multi'))
+                    btn_text = all_translated_texts[text_idx]
+                    keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
+                keyboard.append(keyboard_row)
+            else:
+                # Это одна кнопка в строке
+                text_idx = button_positions.index((row_idx, 0, 'single'))
+                btn_text = all_translated_texts[text_idx]
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+                
+        # Получаем переведенный текст подсказки
+        prompt_text = all_translated_texts[prompt_idx]
+    except Exception as e:
+        # В случае ошибки при параллельном переводе, используем последовательный перевод
+        logging.error(f"Ошибка при параллельном переводе: {e}")
+        # Создаем кнопки последовательным переводом
+        keyboard = []
+        for row in buttons_layout:
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                keyboard_row = []
+                for btn in row:
+                    # Переводим текст кнопки
+                    btn_text = await translate(btn[0])
+                    keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
+                keyboard.append(keyboard_row)
+            else:
+                # Это одна кнопка в строке
+                btn_text = await translate(row[0])
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+        
+        # Переводим текст-подсказку последовательно
+        prompt_text = await translate("Выберите опцию:")
     
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -805,10 +856,8 @@ async def button(buttons_layout):
             if current_update.callback_query:
                 await current_update.callback_query.edit_message_reply_markup(reply_markup=reply_markup)
             else:
-                # Переводим текст-подсказку
-                prompt = await translate("Выберите опцию:")
                 result_message = await current_update.message.reply_text(
-                    text=prompt,
+                    text=prompt_text,
                     reply_markup=reply_markup
                 )
             
@@ -824,7 +873,6 @@ async def button(buttons_layout):
                 chat_id=current_update.effective_chat.id,
                 message_id=processing_message.message_id
             )
-            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
@@ -843,30 +891,77 @@ async def message_with_buttons(text, buttons_layout):
                 chat_id=current_update.effective_chat.id,
                 text="⏳ Обрабатываю запрос..."
             )
-            print(f"Отправлено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
     
-    keyboard = []
-    
-    for row in buttons_layout:
-        if isinstance(row[0], list):
-            # Это строка с несколькими кнопками
-            keyboard_row = []
-            for btn in row:
-                # Переводим текст кнопки
-                btn_text = await translate(btn[0])
-                keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
-            keyboard.append(keyboard_row)
-        else:
-            # Это одна кнопка в строке
-            btn_text = await translate(row[0])
-            keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+    try:
+        # Собираем все тексты кнопок в один список для параллельного перевода
+        all_button_texts = []
+        button_positions = []  # Для отслеживания позиций кнопок
+        
+        for row_idx, row in enumerate(buttons_layout):
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                for btn_idx, btn in enumerate(row):
+                    all_button_texts.append(btn[0])
+                    button_positions.append((row_idx, btn_idx, 'multi'))
+            else:
+                # Это одна кнопка в строке
+                all_button_texts.append(row[0])
+                button_positions.append((row_idx, 0, 'single'))
+        
+        # Добавляем основной текст сообщения для перевода
+        all_button_texts.append(text)
+        message_text_idx = len(all_button_texts) - 1  # Индекс основного текста
+        
+        # Выполняем параллельный перевод всех текстов
+        from language.translate_any_message import translate_multiple
+        all_translated_texts = await translate_multiple(all_button_texts, target_language)
+        
+        # Получаем переведенный основной текст сообщения
+        translated_text = all_translated_texts[message_text_idx]
+        
+        # Создаем кнопки с переведенными текстами
+        keyboard = []
+        for row_idx, row in enumerate(buttons_layout):
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                keyboard_row = []
+                for btn_idx, btn in enumerate(row):
+                    # Находим индекс в переведенных текстах
+                    text_idx = button_positions.index((row_idx, btn_idx, 'multi'))
+                    btn_text = all_translated_texts[text_idx]
+                    keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
+                keyboard.append(keyboard_row)
+            else:
+                # Это одна кнопка в строке
+                text_idx = button_positions.index((row_idx, 0, 'single'))
+                btn_text = all_translated_texts[text_idx]
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+    except Exception as e:
+        # В случае ошибки при параллельном переводе, используем последовательный перевод
+        logging.error(f"Ошибка при параллельном переводе: {e}")
+        
+        # Создаем кнопки последовательным переводом
+        keyboard = []
+        for row in buttons_layout:
+            if isinstance(row[0], list):
+                # Это строка с несколькими кнопками
+                keyboard_row = []
+                for btn in row:
+                    # Переводим текст кнопки
+                    btn_text = await translate(btn[0])
+                    keyboard_row.append(InlineKeyboardButton(btn_text, callback_data=btn[1]))
+                keyboard.append(keyboard_row)
+            else:
+                # Это одна кнопка в строке
+                btn_text = await translate(row[0])
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=row[1])])
+        
+        # Переводим основной текст сообщения последовательно
+        translated_text = await translate(text)
     
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    # Переводим текст сообщения
-    translated_text = await translate(text)
     
     # Отправляем результат
     result_message = None
@@ -895,7 +990,6 @@ async def message_with_buttons(text, buttons_layout):
                 chat_id=current_update.effective_chat.id,
                 message_id=processing_message.message_id
             )
-            print(f"Удалено сообщение 'Обрабатываю запрос...' с ID {processing_message.message_id}")
         except Exception as e:
             logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 

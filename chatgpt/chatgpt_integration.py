@@ -166,8 +166,6 @@ async def call_openai_api(messages: List[Dict[str, str]],
                 "Content-Type": "application/json"
             }
             
-            print(f"Отправка запроса к локальному API: {_api_url}")
-            
             # Если URL заканчивается на /chatgpt_translate
             endpoint = _api_url
             if not endpoint.endswith("/chatgpt_translate"):
@@ -179,12 +177,11 @@ async def call_openai_api(messages: List[Dict[str, str]],
                                       json=data) as response:
                     if response.status != 200:
                         error_text = await response.text()
-                        print(f"Ошибка локального API ({response.status}): {error_text}")
+                        logging.error(f"Ошибка локального API ({response.status}): {error_text}")
                         return None
                     
                     # Получаем ответ
                     response_text = await response.text()
-                    print(f"Ответ от локального API: {response_text}")
                     
                     try:
                         # Пробуем распарсить JSON
@@ -210,7 +207,6 @@ async def call_openai_api(messages: List[Dict[str, str]],
                                 return decode_unicode_string(result["output"])
                             else:
                                 # Если нет известных полей, возвращаем весь JSON в виде строки
-                                print(f"Неизвестный формат ответа: {result}")
                                 # Пробуем найти любое текстовое поле
                                 for key, value in result.items():
                                     if isinstance(value, str) and len(value) > 5:
@@ -219,15 +215,13 @@ async def call_openai_api(messages: List[Dict[str, str]],
                         elif isinstance(result, str):
                             return decode_unicode_string(result)
                         else:
-                            print(f"Неизвестный формат ответа: {result}")
                             return decode_unicode_string(str(result))
                     except json.JSONDecodeError:
                         # Если не удалось распарсить JSON, возвращаем текст как есть
-                        print(f"Не удалось распарсить JSON, возвращаем текст как есть: {response_text}")
                         return decode_unicode_string(response_text)
                         
         except Exception as e:
-            print(f"Ошибка при вызове локального API: {e}")
+            logging.error(f"Ошибка при вызове локального API: {e}")
             return None
     
     # Если используем официальный API OpenAI
