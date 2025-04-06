@@ -1,13 +1,5 @@
 from imports import *
-
-logger = logging.getLogger('simple_bot')
-chat_id = None
-
-def start_custom_survey(questions, after, survey_id):
-    create_survey(questions, after=after, survey_id=survey_id)
-    chat_id = get_chat_id_from_update()
-    asyncio.create_task(start_survey(survey_id, chat_id, current_context, current_update))
-    return True
+from utils import logger, chat_id, start_custom_survey
 
 @start
 def start():
@@ -115,7 +107,4 @@ def process_notification(answers=None, update=None, context=None):
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
-    if not initialize_bot():
-        logger.error("Не удалось запустить бота")
-        import sys
-        sys.exit(1) 
+    initialize_bot()

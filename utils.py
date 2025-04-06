@@ -1,7 +1,3 @@
-"""
-Utility functions for the bot application
-""" 
-
 from imports import *
 
 logger = logging.getLogger('simple_bot')
