@@ -1321,6 +1321,9 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     callback_data = update.callback_query.data
     print(f"[HANDLER] Received callback query: {callback_data}")
     
+    # Получаем сообщение и клавиатуру
+    message = update.callback_query.message
+    
     # Проверяем, не выбор ли это языка
     if callback_data.startswith("lang_"):
         lang_code = callback_data.replace("lang_", "")
@@ -1330,6 +1333,35 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Сообщаем о выбранном языке
         lang_name = LANGUAGES.get(lang_code, "Unknown")
         await update.callback_query.answer(f"Выбран язык: {lang_name}")
+        
+        # Деактивируем кнопки языка
+        if message and message.reply_markup:
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            
+            # Получаем текущую клавиатуру
+            current_keyboard = message.reply_markup.inline_keyboard
+            
+            # Создаем новую клавиатуру, делая нажатую кнопку выбранной
+            new_keyboard = []
+            for row in current_keyboard:
+                new_row = []
+                for button in row:
+                    if button.callback_data == callback_data:
+                        # Помечаем выбранный язык
+                        new_button = InlineKeyboardButton(f"✓ {button.text}", callback_data="disabled")
+                    else:
+                        # Деактивируем остальные кнопки
+                        new_button = InlineKeyboardButton(button.text, callback_data="disabled")
+                    new_row.append(new_button)
+                new_keyboard.append(new_row)
+            
+            # Обновляем клавиатуру сообщения
+            new_reply_markup = InlineKeyboardMarkup(new_keyboard)
+            await context.bot.edit_message_reply_markup(
+                chat_id=message.chat_id,
+                message_id=message.message_id,
+                reply_markup=new_reply_markup
+            )
         
         # Запускаем стартовую функцию
         if 'start' in callbacks:
@@ -1349,11 +1381,46 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             import traceback
             traceback.print_exc()
     
+    # Если кнопка "disabled", ничего не делаем
+    if callback_data == "disabled":
+        await update.callback_query.answer("Эта кнопка уже была нажата")
+        return
+    
     # Запускаем соответствующий обработчик callback
     if callback_data in callbacks:
         try:
             callback_func = callbacks[callback_data]
             print(f"[HANDLER] Calling callback function for {callback_data}")
+            
+            # Деактивируем кнопки в сообщении перед выполнением callback
+            if message and message.reply_markup:
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+                
+                # Получаем текущую клавиатуру
+                current_keyboard = message.reply_markup.inline_keyboard
+                
+                # Создаем новую клавиатуру, делая нажатую кнопку неактивной
+                new_keyboard = []
+                for row in current_keyboard:
+                    new_row = []
+                    for button in row:
+                        if button.callback_data == callback_data:
+                            # Создаем кнопку с тем же текстом, но помечаем её как выбранную и деактивируем
+                            new_button = InlineKeyboardButton(f"✓ {button.text}", callback_data="disabled")
+                        else:
+                            # Для остальных кнопок тоже деактивируем их, но сохраняем внешний вид
+                            new_button = InlineKeyboardButton(button.text, callback_data="disabled")
+                        new_row.append(new_button)
+                    new_keyboard.append(new_row)
+                
+                # Обновляем клавиатуру сообщения
+                new_reply_markup = InlineKeyboardMarkup(new_keyboard)
+                await context.bot.edit_message_reply_markup(
+                    chat_id=message.chat_id,
+                    message_id=message.message_id,
+                    reply_markup=new_reply_markup
+                )
+            
             # Действительно асинхронно вызываем callback функцию
             await callback_func()
             print(f"[HANDLER] Callback function for {callback_data} completed")

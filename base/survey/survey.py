@@ -528,11 +528,40 @@ async def handle_survey_response(update, context):
     
     # Если это вопрос с кнопками и пришел callback_query
     if is_button_question and update.callback_query:
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
         button_value = update.callback_query.data
         # Подтверждаем получение callback запроса
         await update.callback_query.answer()
         
         print(f"Received button choice: {button_value}")
+        
+        # Получаем сообщение с кнопками
+        message = update.callback_query.message
+        # Получаем текущую клавиатуру
+        current_keyboard = message.reply_markup.inline_keyboard
+        
+        # Создаем новую клавиатуру, делая нажатую кнопку неактивной
+        new_keyboard = []
+        for row in current_keyboard:
+            new_row = []
+            for button in row:
+                if button.callback_data == button_value:
+                    # Создаем кнопку с тем же текстом, но помечаем её как выбранную и деактивируем
+                    new_button = InlineKeyboardButton(f"✓ {button.text}", callback_data="disabled")
+                else:
+                    # Для остальных кнопок тоже деактивируем их, но сохраняем внешний вид
+                    new_button = InlineKeyboardButton(button.text, callback_data="disabled")
+                new_row.append(new_button)
+            new_keyboard.append(new_row)
+        
+        # Обновляем клавиатуру сообщения
+        new_reply_markup = InlineKeyboardMarkup(new_keyboard)
+        await context.bot.edit_message_reply_markup(
+            chat_id=chat_id,
+            message_id=message.message_id,
+            reply_markup=new_reply_markup
+        )
         
         # Сохраняем ответ и переходим к следующему вопросу
         survey_data['answers'].append(button_value)
