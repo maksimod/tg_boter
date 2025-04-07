@@ -73,6 +73,15 @@ async def language_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logging.info(f"Пользователь {user_id} выбрал язык: {chosen_language}")
         language_storage.set_user_language(user_id, chosen_language)
         
+        # Инициализируем предустановленные переводы
+        try:
+            # Импортируем функцию для инициализации предустановленных переводов
+            from easy_bot import init_preset_translations
+            await init_preset_translations()
+            logging.info("Предустановленные переводы инициализированы")
+        except Exception as e:
+            logging.error(f"Ошибка при инициализации предустановленных переводов: {e}")
+        
         message_text = f"Вы выбрали язык: {chosen_language}. Бот будет отвечать на этом языке."
         
         try:

@@ -23,6 +23,22 @@ class LanguageStorage:
             "Арабский"
         ]
         
+        # Соответствие между названиями языков и их кодами
+        self.language_to_code = {
+            "Русский": "ru",
+            "Украинский": "uk",
+            "Английский": "en",
+            "Китайский": "zh",
+            "Испанский": "es",
+            "Французский": "fr",
+            "Урду": "ur",
+            "Хинди": "hi",
+            "Арабский": "ar"
+        }
+        
+        # Соответствие между кодами языков и их названиями
+        self.code_to_language = {code: lang for lang, code in self.language_to_code.items()}
+        
     def set_user_language(self, user_id: int, language: str) -> None:
         """
         Устанавливает язык для пользователя

@@ -327,9 +327,26 @@ def chatgpt(instruction: str):
             try:
                 # Отправляем сообщение только если оно еще не было отправлено
                 if not hasattr(current_context, '_chatgpt_processing_message'):
+                    # Проверяем предустановленные переводы из easy_bot
+                    processing_text = None
+                    try:
+                        from easy_bot import PRESET_TRANSLATIONS
+                        # Если есть код языка в предустановленных переводах, используем его
+                        if user_language in PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."]:
+                            processing_text = PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."][user_language]
+                            print(f"ChatGPT: Используем предустановленный перевод для {user_language}: {processing_text}")
+                    except Exception as e:
+                        logging.error(f"Ошибка при получении предустановленных переводов: {e}")
+                    
+                    # Если предустановленный перевод не найден, используем translate_any_message
+                    if not processing_text:
+                        from language.translate_any_message import translate_any_message
+                        processing_text = await translate_any_message("⏳ Обрабатываю запрос...", user_language)
+                    
+                    # Отправляем сообщение
                     processing_message = await current_context.bot.send_message(
                         chat_id=chat_id,
-                        text="⏳ Обрабатываю запрос..."
+                        text=processing_text if processing_text else "⏳ Обрабатываю запрос..."
                     )
                     # Сохраняем ссылку на сообщение в контексте
                     current_context._chatgpt_processing_message = processing_message

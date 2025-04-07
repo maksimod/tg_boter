@@ -86,6 +86,45 @@ TRANSLATIONS = {
     "fr": {},  # Французские сообщения будут переведены
 }
 
+# Предварительные переводы для часто используемых сообщений
+PRESET_TRANSLATIONS = {
+    "⏳ Обрабатываю запрос...": {
+        "en": "⏳ Processing request...",
+        "uk": "⏳ Обробляю запит...",
+        "zh": "⏳ 正在处理请求...",
+        "es": "⏳ Procesando solicitud...",
+        "fr": "⏳ Traitement de la demande..."
+    }
+}
+
+# Инициализация предварительных переводов в кэш
+async def init_preset_translations():
+    """Инициализирует предварительные переводы в кэш и БД"""
+    from language.translate_any_message import translation_cache, save_translation_to_db
+    
+    print("Инициализация предустановленных переводов:")
+    print(f"PRESET_TRANSLATIONS: {PRESET_TRANSLATIONS}")
+    
+    for source_text, translations in PRESET_TRANSLATIONS.items():
+        for lang_code, translated_text in translations.items():
+            target_language = LANGUAGES.get(lang_code, lang_code)
+            
+            # Добавляем в кэш в памяти
+            translation_cache[(source_text, target_language)] = translated_text
+            print(f"Добавлен в кэш перевод для '{source_text}' на {target_language}: {translated_text}")
+            
+            # Также добавляем перевод по коду языка (для прямого доступа)
+            translation_cache[(source_text, lang_code)] = translated_text
+            print(f"Добавлен в кэш перевод для '{source_text}' с кодом {lang_code}: {translated_text}")
+            
+            # И сохраняем в БД, если она инициализирована
+            if db_initialized:
+                try:
+                    await save_translation_to_db(source_text, translated_text, "Russian", target_language)
+                    print(f"Сохранен в БД перевод для '{source_text}' на {target_language}")
+                except Exception as e:
+                    logging.error(f"Ошибка при сохранении предустановленного перевода в БД: {e}")
+
 # Импортируем обработчик опросов, если доступен
 try:
     from base.survey import handle_survey_response
@@ -638,16 +677,34 @@ async def translate(text, target_lang=None):
     # Определяем язык перевода
     target_language = target_lang or get_user_language()
     
+    # Получаем код языка
+    lang_code = None
+    if current_context and hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
+        lang_code = current_context.user_data['language']
+    
     # Выводим для отладки
-    print(f"Переводим текст на язык: {target_language}")
+    print(f"Переводим текст '{text[:30]}...' на язык: {target_language}, код: {lang_code}")
     
     # Если язык - русский, возвращаем текст без изменений
     # и без показа сообщения "Обрабатываю запрос..."
     if target_language.lower() == "русский" or target_language == "ru":
         return text
     
+    # Проверка на предустановленные переводы для фразы "Обрабатываю запрос..."
+    if text == "⏳ Обрабатываю запрос..." and lang_code in PRESET_TRANSLATIONS[text]:
+        translated = PRESET_TRANSLATIONS[text][lang_code]
+        print(f"Используем предустановленный перевод для '{text}' на языке {lang_code}: {translated}")
+        return translated
+    
     # Проверка на служебные сообщения, которые не нужно переводить
     if "обрабатываю запрос" in text.lower() or "⏳" in text:
+        # Дополнительная проверка на предустановленный перевод
+        if lang_code:
+            for preset_text, translations in PRESET_TRANSLATIONS.items():
+                if lang_code in translations and (preset_text.lower() in text.lower() or text.lower() in preset_text.lower()):
+                    translated = translations[lang_code]
+                    print(f"Используем предустановленный перевод для служебного сообщения '{text}' на языке {lang_code}: {translated}")
+                    return translated
         return text
     
     # Для коротких текстов не используем кэширование
@@ -720,6 +777,12 @@ async def write_translated_message(text):
     # Проверяем нужно ли отображать сообщение "Обрабатываю запрос..."
     target_language = get_user_language()
     
+    # Получаем код языка для перевода
+    lang_code = None
+    if current_context and hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
+        lang_code = current_context.user_data['language']
+        print(f"Код языка пользователя для обработки запроса: {lang_code}")
+    
     # Проверяем, нужно ли показывать сообщение "Обрабатываю запрос..."
     # (только если текста нет в кэше/БД)
     from language.translate_any_message import should_show_processing_message
@@ -729,9 +792,21 @@ async def write_translated_message(text):
     processing_message = None
     if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
+            # Используем предустановленные переводы для фразы "Обрабатываю запрос..."
+            processing_text = None
+            
+            # Если у нас есть код языка, используем его для поиска перевода
+            if lang_code and lang_code in PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."]:
+                processing_text = PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."][lang_code]
+                print(f"Используем предустановленный перевод для кода {lang_code}: {processing_text}")
+            
+            # Если перевод не найден или код языка отсутствует, используем translate
+            if not processing_text:
+                processing_text = await translate("⏳ Обрабатываю запрос...")
+            
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,
-                text="⏳ Обрабатываю запрос..."
+                text=processing_text
             )
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
@@ -769,6 +844,12 @@ async def button(buttons_layout):
     # Определяем язык перевода
     target_language = get_user_language()
     
+    # Получаем код языка для перевода
+    lang_code = None
+    if current_context and hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
+        lang_code = current_context.user_data['language']
+        print(f"Код языка пользователя для кнопок: {lang_code}")
+    
     # Собираем все тексты кнопок для проверки, нужно ли показывать индикатор обработки
     all_button_texts = []
     for row in buttons_layout:
@@ -793,9 +874,21 @@ async def button(buttons_layout):
     processing_message = None
     if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
+            # Используем предустановленные переводы для фразы "Обрабатываю запрос..."
+            processing_text = None
+            
+            # Если у нас есть код языка, используем его для поиска перевода
+            if lang_code and lang_code in PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."]:
+                processing_text = PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."][lang_code]
+                print(f"Используем предустановленный перевод для кода {lang_code}: {processing_text}")
+            
+            # Если перевод не найден или код языка отсутствует, используем translate
+            if not processing_text:
+                processing_text = await translate("⏳ Обрабатываю запрос...")
+            
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,
-                text="⏳ Обрабатываю запрос..."
+                text=processing_text
             )
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
@@ -895,11 +988,17 @@ async def button(buttons_layout):
         except Exception as e:
             logging.error(f"Ошибка при удалении сообщения об обработке: {e}")
 
-# Функция для отправки сообщения с кнопками
+# Функция для создания кнопок
 async def message_with_buttons(text, buttons_layout):
     """Отправляет сообщение с кнопками"""
     # Определяем язык перевода
     target_language = get_user_language()
+    
+    # Получаем код языка для перевода
+    lang_code = None
+    if current_context and hasattr(current_context, 'user_data') and 'language' in current_context.user_data:
+        lang_code = current_context.user_data['language']
+        print(f"Код языка пользователя для сообщения с кнопками: {lang_code}")
     
     # Собираем все тексты для проверки, нужно ли показывать индикатор обработки
     all_texts = [text]
@@ -922,9 +1021,21 @@ async def message_with_buttons(text, buttons_layout):
     processing_message = None
     if show_processing and current_update and hasattr(current_update, 'effective_chat'):
         try:
+            # Используем предустановленные переводы для фразы "Обрабатываю запрос..."
+            processing_text = None
+            
+            # Если у нас есть код языка, используем его для поиска перевода
+            if lang_code and lang_code in PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."]:
+                processing_text = PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."][lang_code]
+                print(f"Используем предустановленный перевод для кода {lang_code}: {processing_text}")
+            
+            # Если перевод не найден или код языка отсутствует, используем translate
+            if not processing_text:
+                processing_text = await translate("⏳ Обрабатываю запрос...")
+            
             processing_message = await current_context.bot.send_message(
                 chat_id=current_update.effective_chat.id,
-                text="⏳ Обрабатываю запрос..."
+                text=processing_text
             )
         except Exception as e:
             logging.error(f"Ошибка при отправке сообщения об обработке: {e}")
@@ -1084,6 +1195,34 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Сохраняем id пользователя в БД в контексте
     if user_db_id:
         context.user_data['db_user_id'] = user_db_id
+    
+    # Инициализируем предустановленные переводы
+    await init_preset_translations()
+    
+    # Выводим отладочную информацию о переводе фразы "Обрабатываю запрос..."
+    if 'language' in context.user_data:
+        lang_code = context.user_data['language']
+        print(f"[Debug] Текущий код языка пользователя: {lang_code}")
+        
+        # Проверяем наличие перевода в предустановленных переводах
+        if lang_code in PRESET_TRANSLATIONS["⏳ Обрабатываю запрос..."]:
+            print(f"[Debug] Найден предустановленный перевод для {lang_code}: {PRESET_TRANSLATIONS['⏳ Обрабатываю запрос...'][lang_code]}")
+        else:
+            print(f"[Debug] Не найден предустановленный перевод для кода {lang_code}")
+        
+        # Проверяем наличие перевода в кэше по языку
+        from language.translate_any_message import translation_cache
+        if ("⏳ Обрабатываю запрос...", lang_code) in translation_cache:
+            print(f"[Debug] Найден перевод в кэше для кода {lang_code}: {translation_cache[('⏳ Обрабатываю запрос...', lang_code)]}")
+        else:
+            print(f"[Debug] Не найден перевод в кэше для кода {lang_code}")
+        
+        # Проверяем наличие перевода в кэше по названию языка
+        target_language = LANGUAGES.get(lang_code, "Unknown")
+        if ("⏳ Обрабатываю запрос...", target_language) in translation_cache:
+            print(f"[Debug] Найден перевод в кэше для языка {target_language}: {translation_cache[('⏳ Обрабатываю запрос...', target_language)]}")
+        else:
+            print(f"[Debug] Не найден перевод в кэше для языка {target_language}")
     
     # Если у пользователя нет выбранного языка, показываем выбор языка
     if 'language' not in context.user_data:

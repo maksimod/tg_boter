@@ -55,6 +55,27 @@ db_semaphore = asyncio.Semaphore(1)  # Только 1 запрос к БД од�
 # Кэш в памяти для часто используемых переводов
 translation_cache = {}  # {(текст, язык): перевод}
 
+# Предварительные переводы для часто используемых сообщений
+PRESET_TRANSLATIONS = {
+    "⏳ Обрабатываю запрос...": {
+        "Английский": "⏳ Processing request...",
+        "English": "⏳ Processing request...",
+        "Украинский": "⏳ Обробляю запит...",
+        "Українська": "⏳ Обробляю запит...",
+        "Китайский": "⏳ 正在处理请求...",
+        "中文": "⏳ 正在处理请求...",
+        "Испанский": "⏳ Procesando solicitud...",
+        "Español": "⏳ Procesando solicitud...",
+        "Французский": "⏳ Traitement de la demande...",
+        "Français": "⏳ Traitement de la demande..."
+    }
+}
+
+# Инициализировать кэш переводов предустановленными значениями
+for source_text, translations in PRESET_TRANSLATIONS.items():
+    for language, translation in translations.items():
+        translation_cache[(source_text, language)] = translation
+
 # Флаг для отслеживания успешной инициализации БД
 _db_initialized = False
 
@@ -237,15 +258,52 @@ async def translate_any_message(
     
     if not message:
         return ""
+    
+    # Лог с информацией о переводе
+    print(f"translate_any_message: Переводим '{message[:30]}...' на {target_language}")
         
     # Перевод не требуется, только если явно указан русский язык
     if target_language.lower() == "русский":
         return message
     
+    # Проверка для предустановленных переводов
+    # 1. Прямое соответствие в PRESET_TRANSLATIONS
+    if message in PRESET_TRANSLATIONS and target_language in PRESET_TRANSLATIONS[message]:
+        print(f"Найден прямой перевод для '{message}' на {target_language}: {PRESET_TRANSLATIONS[message][target_language]}")
+        return PRESET_TRANSLATIONS[message][target_language]
+    
+    # 2. Проверка по коду языка
+    language_code = LANGUAGE_CODES.get(target_language, None)
+    if language_code and message in PRESET_TRANSLATIONS:
+        if language_code in PRESET_TRANSLATIONS[message]:
+            print(f"Найден перевод по коду языка {language_code} для '{message}': {PRESET_TRANSLATIONS[message][language_code]}")
+            return PRESET_TRANSLATIONS[message][language_code]
+    
+    # 3. Проверка на содержание фразы "Обрабатываю запрос..."
+    if "обрабатываю запрос" in message.lower() or "⏳" in message:
+        for preset_msg in PRESET_TRANSLATIONS.keys():
+            if "обрабатываю запрос" in preset_msg.lower():
+                # Сначала пробуем по названию языка
+                if target_language in PRESET_TRANSLATIONS[preset_msg]:
+                    print(f"Найден перевод для сообщения обработки по названию языка {target_language}: {PRESET_TRANSLATIONS[preset_msg][target_language]}")
+                    return PRESET_TRANSLATIONS[preset_msg][target_language]
+                # Затем по коду языка
+                elif language_code and language_code in PRESET_TRANSLATIONS[preset_msg]:
+                    print(f"Найден перевод для сообщения обработки по коду языка {language_code}: {PRESET_TRANSLATIONS[preset_msg][language_code]}")
+                    return PRESET_TRANSLATIONS[preset_msg][language_code]
+    
     # Проверяем кэш в памяти
     cache_key = (message, target_language)
     if cache_key in translation_cache:
+        print(f"Найден перевод в кэше для '{message[:30]}...' на {target_language}: {translation_cache[cache_key][:30]}...")
         return translation_cache[cache_key]
+    
+    # Проверяем кэш по коду языка
+    if language_code:
+        code_cache_key = (message, language_code)
+        if code_cache_key in translation_cache:
+            print(f"Найден перевод в кэше по коду {language_code} для '{message[:30]}...': {translation_cache[code_cache_key][:30]}...")
+            return translation_cache[code_cache_key]
     
     # Используем семафор для ограничения одновременных запросов на перевод
     async with translation_semaphore:    
