@@ -3,12 +3,14 @@ from utils import logger, chat_id, start_custom_survey
 
 @start
 def start():
+    auto_write_translated_message("Как?")
     auto_write_translated_message("Привет! Я простой бот.")
+    auto_write_translated_message("Пока! Я простой бот.")
     auto_message_with_buttons("Выберите действие:", [
         ["Информация", "info"],
         ["Помощь", "help"],
         ["Пройти опрос", "start_survey"],
-        ["Спросить ChatGPT", "ask_chatgpt"],
+        [["Спросить ChatGPT", "ask_chatgpt"],["Выход", "exit"]],
         ["Создать уведомление", "create_notification"],
         ["Гугл", "google_test"],
         [["О боте", "about"], ["Выход", "exit"]]
@@ -24,7 +26,7 @@ def google_test():
 
 @callback("info")
 def info():
-    auto_write_translated_message("Это информационное сообщение.")
+    auto_write_translated_message("Инфа")
     auto_button([
         ["Узнать больше", "info_more"],
         ["Вернуться в меню", "back_to_menu"]
@@ -90,7 +92,7 @@ def action_after_survey(answers=None, update=None, context=None):
 def ask_chatgpt_callback():
     auto_write_translated_message("Напишите ваш вопрос, и я отвечу на него с помощью ChatGPT.")
     
-@chatgpt("Ты - дружелюбный ассистент. Отвечай кратко и по делу на вопросы пользователя.")
+@chatgpt("Отвечай пользователю на английском языке")
 def handle_chatgpt_message(message_text):
     pass
 

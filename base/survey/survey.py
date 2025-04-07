@@ -501,6 +501,9 @@ async def handle_survey_response(update, context):
     chat_id = update.effective_chat.id
     print(f"Processing response for user {user_id}, chat_id {chat_id}")
     
+    # Импортируем функцию перевода
+    from easy_bot import translate
+    
     # Check if user has an active survey
     if user_id not in _active_surveys:
         print(f"No active survey for user {user_id}")
@@ -579,14 +582,21 @@ async def handle_survey_response(update, context):
         except ValidationError as e:
             # Validation failed, ask again
             print(f"Validation error: {e}")
+            
+            # Переводим сообщение об ошибке
+            error_message = str(e)
+            translated_error = await translate(error_message)
+            
             # Напрямую отправляем сообщение об ошибке
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=str(e)
+                text=translated_error
             )
+            
+            # Повторно отправляем вопрос (уже с переводом через ask_next_question)
             await context.bot.send_message(
                 chat_id=chat_id,
-                text=question['text']
+                text=await translate(question['text'])
             )
         except Exception as e:
             print(f"Unexpected error in handle_survey_response: {e}")
@@ -604,6 +614,9 @@ async def ask_next_question(context, chat_id, survey_data):
     
     print(f"Asking next question: {question['text']}")
     
+    # Импортируем функцию перевода
+    from easy_bot import translate
+    
     # Если вопрос требует кнопки
     if question['validation_type'] == TYPE_BUTTONS:
         from telegram import InlineKeyboardButton, InlineKeyboardMarkup
@@ -611,29 +624,62 @@ async def ask_next_question(context, chat_id, survey_data):
         buttons = question['validation_params'].get('buttons', [])
         keyboard = []
         
-        for button_row in buttons:
+        # Подготовим список текстов кнопок для перевода
+        button_texts = []
+        button_positions = []
+        
+        for row_idx, button_row in enumerate(buttons):
+            if isinstance(button_row, list) and isinstance(button_row[0], list):
+                # Это горизонтальный ряд кнопок
+                for btn_idx, button in enumerate(button_row):
+                    button_texts.append(button[0])
+                    button_positions.append((row_idx, btn_idx, 'multi'))
+            elif isinstance(button_row, list):
+                # Это одиночная кнопка
+                button_texts.append(button_row[0])
+                button_positions.append((row_idx, 0, 'single'))
+        
+        # Переводим текст вопроса
+        translated_question = await translate(question['text'])
+        
+        # Переводим все тексты кнопок
+        translated_button_texts = []
+        for text in button_texts:
+            translated_text = await translate(text)
+            translated_button_texts.append(translated_text)
+        
+        # Создаем клавиатуру с переведенными текстами
+        for row_idx, button_row in enumerate(buttons):
             if isinstance(button_row, list) and isinstance(button_row[0], list):
                 # Это горизонтальный ряд кнопок
                 row = []
-                for button in button_row:
-                    row.append(InlineKeyboardButton(button[0], callback_data=button[1]))
+                for btn_idx, button in enumerate(button_row):
+                    # Находим индекс переведенного текста
+                    text_idx = button_positions.index((row_idx, btn_idx, 'multi'))
+                    btn_text = translated_button_texts[text_idx]
+                    row.append(InlineKeyboardButton(btn_text, callback_data=button[1]))
                 keyboard.append(row)
             elif isinstance(button_row, list):
                 # Это одиночная кнопка
-                keyboard.append([InlineKeyboardButton(button_row[0], callback_data=button_row[1])])
+                text_idx = button_positions.index((row_idx, 0, 'single'))
+                btn_text = translated_button_texts[text_idx]
+                keyboard.append([InlineKeyboardButton(btn_text, callback_data=button_row[1])])
         
         reply_markup = InlineKeyboardMarkup(keyboard)
         
         await context.bot.send_message(
             chat_id=chat_id,
-            text=question['text'],
+            text=translated_question,
             reply_markup=reply_markup
         )
     else:
         # Обычный текстовый вопрос
+        # Переводим текст вопроса
+        translated_question = await translate(question['text'])
+        
         await context.bot.send_message(
             chat_id=chat_id,
-            text=question['text']
+            text=translated_question
         )
 
 async def finish_survey(context, chat_id, user_id, survey_data):
@@ -643,10 +689,17 @@ async def finish_survey(context, chat_id, user_id, survey_data):
     logger.info(f"Survey complete, sending completion message to chat_id {chat_id}")
     print(f"Survey complete, sending completion message to chat_id {chat_id}")
     
+    # Импортируем функцию перевода
+    from easy_bot import translate
+    
+    # Переводим сообщение завершения
+    completion_message = "Спасибо за ваши ответы!"
+    translated_completion_message = await translate(completion_message)
+    
     try:
         await context.bot.send_message(
             chat_id=chat_id,
-            text="Спасибо за ваши ответы!"
+            text=translated_completion_message
         )
     except Exception as e:
         logger.error(f"Error sending completion message: {str(e)}")
