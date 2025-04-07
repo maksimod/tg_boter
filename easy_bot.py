@@ -1347,8 +1347,8 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 new_row = []
                 for button in row:
                     if button.callback_data == callback_data:
-                        # Помечаем выбранный язык
-                        new_button = InlineKeyboardButton(f"✓ {button.text}", callback_data="disabled")
+                        # Деактивируем нажатую кнопку (без изменения текста)
+                        new_button = InlineKeyboardButton(button.text, callback_data="disabled")
                     else:
                         # Деактивируем остальные кнопки
                         new_button = InlineKeyboardButton(button.text, callback_data="disabled")
@@ -1405,10 +1405,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     new_row = []
                     for button in row:
                         if button.callback_data == callback_data:
-                            # Создаем кнопку с тем же текстом, но помечаем её как выбранную и деактивируем
-                            new_button = InlineKeyboardButton(f"✓ {button.text}", callback_data="disabled")
+                            # Деактивируем нажатую кнопку (без изменения текста)
+                            new_button = InlineKeyboardButton(button.text, callback_data="disabled")
                         else:
-                            # Для остальных кнопок тоже деактивируем их, но сохраняем внешний вид
+                            # Деактивируем остальные кнопки
                             new_button = InlineKeyboardButton(button.text, callback_data="disabled")
                         new_row.append(new_button)
                     new_keyboard.append(new_row)
