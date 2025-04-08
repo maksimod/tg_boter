@@ -397,7 +397,7 @@ def parse_validation(validation_str: str) -> Tuple[str, Optional[dict]]:
     # Default to text if no valid format is found
     return TYPE_TEXT, None
 
-def create_survey(questions: List[List], after: Optional[str] = None, survey_id: str = None):
+def create_survey(questions: List[List], after: Optional[str] = None, survey_id: str = None, rewrite_data: Optional[List[List]] = None):
     """
     Creates a survey with the given questions.
     
@@ -405,6 +405,7 @@ def create_survey(questions: List[List], after: Optional[str] = None, survey_id:
         questions: List of question-validation pairs
         after: Optional callback function name to call after survey completion
         survey_id: Identifier for the survey (required)
+        rewrite_data: Optional list of labels for changing answers, one for each question
     
     Returns:
         Dictionary with survey data
@@ -430,7 +431,8 @@ def create_survey(questions: List[List], after: Optional[str] = None, survey_id:
         'questions': formatted_questions,
         'current_index': 0,
         'answers': [],
-        'after_callback': after
+        'after_callback': after,
+        'rewrite_data': rewrite_data
     }
     
     _store_survey(survey_id, survey_data)
@@ -503,6 +505,90 @@ async def handle_survey_response(update, context):
     
     # Импортируем функцию перевода
     from easy_bot import translate
+    
+    # Проверяем, не является ли это callback от кнопок редактирования или подтверждения
+    if update.callback_query and not update.callback_query.data.startswith("disabled"):
+        callback_data = update.callback_query.data
+        
+        if callback_data.startswith("edit_"):
+            # Кнопка редактирования ответа
+            # Формат: edit_index_callback_surveyid
+            parts = callback_data.split("_", 3)
+            if len(parts) >= 3:
+                try:
+                    question_index = int(parts[1])
+                    after_callback = parts[2]
+                    survey_id = parts[3] if len(parts) > 3 else after_callback
+                    
+                    # Проверяем, есть ли активный опрос у пользователя
+                    if user_id in _active_surveys:
+                        survey_data = _active_surveys[user_id]['data']
+                        
+                        # Переходим к указанному вопросу
+                        if 0 <= question_index < len(survey_data['questions']):
+                            # Подтверждаем получение callback
+                            await update.callback_query.answer()
+                            
+                            # Обновляем индекс текущего вопроса
+                            survey_data['current_index'] = question_index
+                            
+                            # Задаем вопрос
+                            await ask_next_question(context, chat_id, survey_data)
+                            
+                            return True
+                except Exception as e:
+                    print(f"Error handling edit callback: {str(e)}")
+                    
+        elif callback_data.startswith("confirm_"):
+            # Кнопка подтверждения
+            # Формат: confirm_callback_surveyid
+            parts = callback_data.split("_", 2)
+            if len(parts) >= 2:
+                after_callback = parts[1]
+                survey_id = parts[2] if len(parts) > 2 else after_callback
+                
+                # Проверяем, есть ли активный опрос у пользователя
+                if user_id in _active_surveys:
+                    await update.callback_query.answer()
+                    
+                    survey_data = _active_surveys[user_id]['data']
+                    
+                    # Завершаем опрос и вызываем callback
+                    # Отправляем сообщение "Спасибо за ваши ответы"
+                    completion_message = "Спасибо за ваши ответы!"
+                    translated_completion_message = await translate(completion_message)
+                    
+                    try:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=translated_completion_message
+                        )
+                    except Exception as e:
+                        print(f"Error sending completion message: {str(e)}")
+                    
+                    # Вызываем callback-функцию
+                    if after_callback:
+                        try:
+                            from easy_bot import callbacks, current_update, current_context
+                            
+                            if after_callback in callbacks:
+                                callback_func = callbacks[after_callback]
+                                
+                                try:
+                                    # Важно! Используем именованные аргументы
+                                    await callback_func(answers=survey_data['answers'], update=current_update, context=current_context)
+                                except Exception as e:
+                                    print(f"Error in callback {after_callback}: {str(e)}")
+                        except Exception as e:
+                            print(f"Error importing callbacks: {str(e)}")
+                    
+                    # Очищаем активный опрос
+                    try:
+                        del _active_surveys[user_id]
+                    except Exception as e:
+                        print(f"Error clearing active survey: {str(e)}")
+                    
+                    return True
     
     # Check if user has an active survey
     if user_id not in _active_surveys:
@@ -721,6 +807,47 @@ async def finish_survey(context, chat_id, user_id, survey_data):
     # Импортируем функцию перевода
     from easy_bot import translate
     
+    # Проверяем, есть ли параметр rewrite_data
+    rewrite_data = survey_data.get('rewrite_data')
+    
+    if rewrite_data:
+        # Спрашиваем, все ли данные верны и предлагаем кнопки для редактирования
+        confirmation_message = "Все ли данные верны?"
+        translated_confirmation_message = await translate(confirmation_message)
+        
+        # Создаем кнопки для редактирования каждого ответа
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        
+        keyboard = []
+        for i, label in enumerate(rewrite_data):
+            if i < len(survey_data['questions']):
+                # Создаем кнопку для редактирования этого ответа
+                button_label = label[0]
+                button_data = f"edit_{i}_{survey_data['after_callback']}_{survey_data.get('survey_id', '')}"
+                keyboard.append([InlineKeyboardButton(button_label, callback_data=button_data)])
+        
+        # Добавляем кнопку подтверждения
+        confirm_label = "Все верно"
+        confirm_data = f"confirm_{survey_data['after_callback']}_{survey_data.get('survey_id', '')}"
+        keyboard.append([InlineKeyboardButton(confirm_label, callback_data=confirm_data)])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=translated_confirmation_message,
+                reply_markup=reply_markup
+            )
+            # На этом этапе не вызываем callback и не очищаем активный опрос
+            # Ждем решения пользователя
+            return
+            
+        except Exception as e:
+            logger.error(f"Error sending editing options: {str(e)}")
+            print(f"Error sending editing options: {str(e)}")
+    
+    # Стандартное завершение опроса если нет rewrite_data
     # Переводим сообщение завершения
     completion_message = "Спасибо за ваши ответы!"
     translated_completion_message = await translate(completion_message)

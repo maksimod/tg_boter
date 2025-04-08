@@ -9,7 +9,8 @@ def start():
     auto_message_with_buttons("Выберите действие:", [
         ["Информация", "info"],
         ["Помощь", "help"],
-        ["Пройти опрос", "start_survey"],
+        ["Пройти опрос с возможностью редактирования", "start_survey"],
+        ["Пройти опрос без возможности редактирования", "start_simple_survey"],
         [["Спросить ChatGPT", "ask_chatgpt"],["Выход", "exit"]],
         ["Создать уведомление", "create_notification"],
         ["Гугл", "google_test"],
@@ -79,7 +80,21 @@ def start_demo_survey():
             [["Информация", "info_choice"], ["Помощь", "help_choice"]]
         ]]
     ]
-    start_custom_survey(questions, "action", survey_id)
+    
+    # Добавляем кнопки редактирования для каждого вопроса
+    rewrite_data = [
+        ["Изменить имя"],
+        ["Изменить возраст"],
+        ["Изменить дату встречи"],
+        ["Изменить время встречи"],
+        ["Изменить дату и время встречи"],
+        ["Изменить телефон"],
+        ["Изменить ссылку на профиль"],
+        ["Изменить подтверждение"],
+        ["Изменить выбор продолжения"]
+    ]
+    
+    start_custom_survey(questions, "action", survey_id, rewrite_data=rewrite_data)
 
 @callback("action")
 def action_after_survey(answers=None, update=None, context=None):
@@ -115,6 +130,24 @@ def process_notification(answers=None, update=None, context=None):
     notification_datetime = answers[0]
     notification_text = answers[1]
     create_notification(notification_datetime, notification_text, current_upd, current_ctx)
+
+@callback("start_simple_survey")
+def start_simple_survey():
+    survey_id = "simple_survey"
+    questions = [
+        ["Как вас зовут? (Фамилия Имя)", "фио"],
+        ["Сколько вам лет?", "номер:3-100"],
+        ["Укажите дату встречи (ДД.ММ.ГГ, например 31.03.25 или 'сегодня', 'завтра')", "дата"],
+        ["Укажите время встречи (ЧЧ:ММ)", "время"],
+        ["Введите контактный телефон", "телефон"],
+        ["Как вы хотели бы продолжить?", [
+            [["Вернуться в меню", "back_choice"]],
+            [["Информация", "info_choice"]]
+        ]]
+    ]
+    
+    # Не передаем rewrite_data, опрос будет работать по стандартной схеме
+    start_custom_survey(questions, "action", survey_id)
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
