@@ -529,6 +529,10 @@ async def handle_survey_response(update, context):
                             # Подтверждаем получение callback
                             await update.callback_query.answer()
                             
+                            # Добавляем флаг, что мы находимся в режиме редактирования
+                            survey_data['is_editing'] = True
+                            survey_data['edit_index'] = question_index
+                            
                             # Обновляем индекс текущего вопроса
                             survey_data['current_index'] = question_index
                             
@@ -650,16 +654,23 @@ async def handle_survey_response(update, context):
         )
         
         # Сохраняем ответ и переходим к следующему вопросу
-        survey_data['answers'].append(button_value)
-        survey_data['current_index'] += 1
-        current_index = survey_data['current_index']
-        
-        # Если есть еще вопросы, задаем следующий
-        if current_index < len(survey_data['questions']):
-            await ask_next_question(context, chat_id, survey_data)
-        else:
-            # Опрос завершен
+        if survey_data.get('is_editing', False):
+            # В режиме редактирования заменяем ответ и возвращаемся к финишному экрану
+            edit_index = survey_data.get('edit_index', 0)
+            survey_data['answers'][edit_index] = button_value
+            survey_data['is_editing'] = False
             await finish_survey(context, chat_id, user_id, survey_data)
+        else:
+            survey_data['answers'].append(button_value)
+            survey_data['current_index'] += 1
+            current_index = survey_data['current_index']
+            
+            # Если есть еще вопросы, задаем следующий
+            if current_index < len(survey_data['questions']):
+                await ask_next_question(context, chat_id, survey_data)
+            else:
+                # Опрос завершен
+                await finish_survey(context, chat_id, user_id, survey_data)
         
         return True
     
@@ -678,21 +689,34 @@ async def handle_survey_response(update, context):
             
             print(f"Input validated successfully: {validated_value}")
             
-            # Store the answer
-            survey_data['answers'].append(validated_value)
-            
-            # Move to the next question
-            survey_data['current_index'] += 1
-            current_index = survey_data['current_index']
-            
-            print(f"Moving to question index: {current_index}")
-            
-            # If there are more questions, ask the next one
-            if current_index < len(survey_data['questions']):
-                await ask_next_question(context, chat_id, survey_data)
-            else:
-                # Опрос завершен
+            # Проверяем, находимся ли мы в режиме редактирования
+            if survey_data.get('is_editing', False):
+                # Сохраняем ответ на редактируемый вопрос
+                edit_index = survey_data.get('edit_index', 0)
+                # Заменяем ответ в нужной позиции
+                survey_data['answers'][edit_index] = validated_value
+                
+                # Очищаем флаги редактирования
+                survey_data['is_editing'] = False
+                
+                # Завершаем опрос сразу (все вопросы уже отвечены)
+                # Вызываем finish_survey, который покажет сводку и кнопки редактирования
                 await finish_survey(context, chat_id, user_id, survey_data)
+                return True
+            else:
+                # Store the answer
+                survey_data['answers'].append(validated_value)
+                
+                # Move to the next question
+                survey_data['current_index'] += 1
+                current_index = survey_data['current_index']
+                
+                # If there are more questions, ask the next one
+                if current_index < len(survey_data['questions']):
+                    await ask_next_question(context, chat_id, survey_data)
+                else:
+                    # Survey is complete
+                    await finish_survey(context, chat_id, user_id, survey_data)
                 
         except ValidationError as e:
             # Validation failed, ask again
@@ -811,8 +835,21 @@ async def finish_survey(context, chat_id, user_id, survey_data):
     rewrite_data = survey_data.get('rewrite_data')
     
     if rewrite_data:
-        # Спрашиваем, все ли данные верны и предлагаем кнопки для редактирования
-        confirmation_message = "Все ли данные верны?"
+        # Формируем сообщение с введенными данными
+        message_parts = ["Проверьте ваши данные:"]
+        
+        # Добавляем каждый вопрос и ответ
+        for i, (question, answer) in enumerate(zip(survey_data['questions'], survey_data['answers'])):
+            # Получаем текст вопроса без двоеточия и знака вопроса
+            question_text = question['text']
+            question_text = question_text.split('?')[0] if '?' in question_text else question_text
+            question_text = question_text.split(':')[0] if ':' in question_text else question_text
+            
+            # Добавляем вопрос и ответ
+            message_parts.append(f"{question_text}: {answer}")
+        
+        # Объединяем все в одно сообщение
+        confirmation_message = "\n".join(message_parts)
         translated_confirmation_message = await translate(confirmation_message)
         
         # Создаем кнопки для редактирования каждого ответа
