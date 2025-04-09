@@ -14,7 +14,9 @@ def start():
         [["Спросить ChatGPT", "ask_chatgpt"],["Выход", "exit"]],
         ["Создать уведомление", "create_notification"],
         ["Гугл", "google_test"],
-        [["О боте", "about"], ["Выход", "exit"]]
+        [["О боте", "about"], ["Выход", "exit"]],
+        ["Создать объявление", "create_announcement"],
+        ["Тестовое объявление", "test_announcement"]
     ])
 
 @callback("google_test")
@@ -44,6 +46,27 @@ def info_more():
 @callback("help")
 def help():
     auto_write_translated_message("Это справочное сообщение. Используйте кнопки для навигации.")
+    
+    async def announce_example():
+        try:
+            # Получаем chat_id текущего пользователя
+            current_chat_id = get_chat_id_from_update()
+            logger.info(f"ID чата текущего пользователя для объявления: {current_chat_id}")
+            
+            if current_chat_id:
+                success = await announce("ВНИМАНИЕ ВСЕМ", [current_chat_id])
+                if success:
+                    logger.info(f"Тестовое объявление отправлено пользователю {current_chat_id}")
+                else:
+                    logger.error("Не удалось отправить тестовое объявление")
+            else:
+                logger.error("Не удалось получить ID чата текущего пользователя")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке тестового объявления: {e}")
+    
+    # Запускаем асинхронную задачу для отправки объявления
+    asyncio.create_task(announce_example())
+    
     auto_button([
         ["Вернуться в меню", "back_to_menu"]
     ])
@@ -148,6 +171,142 @@ def start_simple_survey():
     
     # Не передаем rewrite_data, опрос будет работать по стандартной схеме
     start_custom_survey(questions, "action", survey_id)
+
+@callback("create_announcement")
+def create_announcement_callback():
+    auto_write_translated_message("Давайте создадим объявление.")
+    
+    survey_id = "announcement_survey"
+    questions = [
+        ["Введите текст объявления", "текст"],
+        ["Выберите получателей:", [
+            [["Все пользователи", "all_recipients"]],
+            [["Указать конкретных пользователей", "specific_recipients"]]
+        ]]
+    ]
+    start_custom_survey(questions, "process_announcement", survey_id)
+
+@callback("process_announcement")
+def process_announcement(answers=None, update=None, context=None):
+    current_upd = update or current_update
+    current_ctx = context or current_context
+    
+    announcement_text = answers[0]
+    recipient_choice = answers[1]
+    
+    current_chat_id = get_chat_id_from_update(current_upd)
+    logger.info(f"ID чата текущего пользователя: {current_chat_id}")
+    
+    if recipient_choice == "all_recipients":
+        # Отправляем всем пользователям
+        auto_write_translated_message("Отправляю объявление всем пользователям...")
+        
+        async def send_to_all():
+            try:
+                # Отправляем объявление всем пользователям
+                success = await announce(announcement_text, "all")
+                
+                if success:
+                    auto_write_translated_message("Объявление успешно отправлено всем пользователям.")
+                else:
+                    # Если отправка не удалась, пробуем отправить только текущему пользователю
+                    logger.warning("Не удалось отправить всем пользователям, пробуем отправить только вам.")
+                    if current_chat_id:
+                        direct_success = await announce(announcement_text, [current_chat_id])
+                        if direct_success:
+                            auto_write_translated_message("Объявление отправлено только вам из-за проблем с базой данных.")
+                        else:
+                            auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
+                    else:
+                        auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке объявления: {str(e)}")
+                auto_write_translated_message(f"Произошла ошибка: {str(e)}")
+                
+                # В любом случае пробуем отправить текущему пользователю
+                if current_chat_id:
+                    try:
+                        await announce(announcement_text, [current_chat_id])
+                        auto_write_translated_message("Объявление отправлено только вам.")
+                    except Exception:
+                        pass
+        
+        asyncio.create_task(send_to_all())
+    elif recipient_choice == "specific_recipients":
+        # Запрашиваем конкретные ID пользователей
+        auto_write_translated_message("Введите ID пользователей через запятую (например: 123456789, 987654321)")
+        
+        # Настраиваем обработчик сообщений для получения списка ID
+        @on_auto_text_message
+        async def handle_user_ids(message_text):
+            try:
+                if message_text.strip().lower() == "я":
+                    # Если пользователь вводит "я", отправляем только ему
+                    user_ids = [current_chat_id]
+                    auto_write_translated_message(f"Отправляю объявление только вам (ID: {current_chat_id})...")
+                else:
+                    # Парсим список ID через запятую
+                    user_ids = [int(user_id.strip()) for user_id in message_text.split(',')]
+                    
+                    # Проверяем, включен ли текущий пользователь
+                    if current_chat_id and current_chat_id not in user_ids:
+                        user_ids.append(current_chat_id)
+                        auto_write_translated_message(f"Добавлен ваш ID ({current_chat_id}) к списку получателей.")
+                
+                # Отправляем объявление
+                auto_write_translated_message("Отправляю объявление...")
+                success = await announce(announcement_text, user_ids)
+                
+                if success:
+                    auto_write_translated_message(f"Объявление отправлено {len(user_ids)} пользователям.")
+                else:
+                    auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
+            except ValueError:
+                auto_write_translated_message("Неверный формат ID. Используйте только числа, разделённые запятыми, или введите 'я' для отправки только себе.")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке ID пользователей: {e}")
+                auto_write_translated_message(f"Произошла ошибка: {str(e)}")
+    
+    # Возвращаемся в главное меню
+    auto_button([
+        ["Вернуться в меню", "back_to_menu"]
+    ])
+
+@callback("test_announcement")
+def test_announcement():
+    auto_write_translated_message("Отправляю тестовое объявление...")
+    
+    # Получаем ID чата текущего пользователя
+    current_chat_id = get_chat_id_from_update()
+    logger.info(f"ID чата текущего пользователя для тестового объявления: {current_chat_id}")
+    
+    async def send_test_directly():
+        try:
+            if current_chat_id:
+                message = "Это тестовое сообщение для проверки функциональности объявлений."
+                
+                # Получаем экземпляр бота напрямую для отправки сообщения
+                from easy_bot import get_bot_instance
+                app = get_bot_instance()
+                
+                if app and hasattr(app, 'bot'):
+                    logger.info(f"Отправка тестового сообщения напрямую через bot.send_message")
+                    await app.bot.send_message(chat_id=current_chat_id, text=message)
+                    auto_write_translated_message("Тестовое сообщение отправлено напрямую! Проверьте что оно пришло.")
+                else:
+                    logger.error("Не удалось получить экземпляр бота для отправки")
+                    auto_write_translated_message("Не удалось получить экземпляр бота для отправки. Проверьте логи.")
+            else:
+                auto_write_translated_message("Не удалось определить ваш ID чата.")
+        except Exception as e:
+            logger.error(f"Ошибка при прямой отправке тестового сообщения: {e}")
+            auto_write_translated_message(f"Ошибка при отправке: {str(e)}")
+    
+    asyncio.create_task(send_test_directly())
+    
+    auto_button([
+        ["Вернуться в меню", "back_to_menu"]
+    ])
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
