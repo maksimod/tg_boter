@@ -6,20 +6,20 @@ logger = logging.getLogger(__name__)
 
 def initialize_bot():
     """
-    Инициализирует и запускает бота с необходимыми настройками.
+    Инициализирует бота с необходимыми настройками без его запуска.
     
     Returns:
-        bool: True если бот успешно запущен, False в противном случае
+        Application: Экземпляр приложения бота, если инициализация успешна, или None в противном случае
     """
     try:
         # Получаем экземпляр бота без запуска
         logger.info("Получение экземпляра бота...")
-        from easy_bot import get_bot_instance, run_bot
+        from easy_bot import get_bot_instance
         app = get_bot_instance()
         
         if app is None:
             logger.error("Не удалось получить экземпляр бота")
-            return False
+            return None
         
         # Передаем экземпляр бота в модуль уведомлений
         logger.info("Передача экземпляра бота в модуль уведомлений...")
@@ -33,11 +33,9 @@ def initialize_bot():
             logger.error(f"Ошибка при передаче экземпляра бота: {e}")
             logger.error(traceback.format_exc())
         
-        # Теперь запускаем бота
-        logger.info("Запуск основного бота...")
-        run_bot()
-        return True
+        # Возвращаем экземпляр приложения бота
+        return app
     except Exception as e:
-        logger.error(f"Ошибка при запуске бота: {e}")
+        logger.error(f"Ошибка при инициализации бота: {e}")
         logger.error(traceback.format_exc())
-        return False 
+        return None 

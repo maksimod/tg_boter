@@ -1,6 +1,7 @@
 import logging
 import asyncio
 from typing import List, Union, Optional
+import asyncpg
 
 # Import necessary modules
 from easy_bot import get_bot_instance, current_update, get_chat_id_from_update
@@ -9,90 +10,89 @@ logger = logging.getLogger(__name__)
 
 async def get_all_user_chat_ids() -> List[int]:
     """
-    Получает все chat_id пользователей из базы данных.
+    Получает все chat_id пользователей из базы данных PostgreSQL.
     
     Returns:
         List[int]: Список chat_id всех пользователей
     """
+    conn = None
     try:
-        # Проверяем, какая база данных используется
-        try:
-            from credentials.postgres.config import USE_SQLITE, SQLITE_DB_PATH
-            using_sqlite = USE_SQLITE
-            sqlite_path = SQLITE_DB_PATH
-        except (ImportError, AttributeError):
-            using_sqlite = False
-            sqlite_path = "db/local_database.db"
-            
-        logger.info(f"База данных: {'SQLite' if using_sqlite else 'PostgreSQL'}, путь: {sqlite_path if using_sqlite else 'PostgreSQL'}")
+        # Загружаем настройки PostgreSQL напрямую
+        from credentials.postgres.config import HOST, PORT, DATABASE, USER, PASSWORD, BOT_PREFIX
+        logger.info(f"Подключение к PostgreSQL: {HOST}:{PORT}, БД: {DATABASE}, пользователь: {USER}")
         
-        if using_sqlite:
-            # Используем SQLite
-            import sqlite3
-            import os
+        # Устанавливаем прямое соединение с PostgreSQL
+        conn = await asyncpg.connect(
+            host=HOST,
+            port=PORT,
+            user=USER,
+            password=PASSWORD,
+            database=DATABASE,
+            timeout=10.0
+        )
+        
+        # Проверяем соединение
+        await conn.fetchval("SELECT 1")
+        logger.info("Соединение с PostgreSQL успешно установлено")
+        
+        # Получаем список пользователей
+        query = f"SELECT DISTINCT chat_id FROM {BOT_PREFIX}users"
+        rows = await conn.fetch(query)
+        
+        # Извлекаем chat_id из результата
+        chat_ids = [row['chat_id'] for row in rows]
+        logger.info(f"Получено {len(chat_ids)} chat_id пользователей из PostgreSQL")
+        
+        # Если не найдено пользователей, добавим тестового пользователя
+        if not chat_ids:
+            logger.warning("Не найдено пользователей в базе данных PostgreSQL. Добавляем тестового пользователя.")
             
-            # Проверяем существование файла БД
-            if not os.path.exists(sqlite_path):
-                logger.error(f"Файл базы данных SQLite не найден: {sqlite_path}")
-                return []
+            # Добавляем тестового пользователя
+            current_update_obj = current_update
+            if current_update_obj and hasattr(current_update_obj, 'effective_user'):
+                user_id = current_update_obj.effective_user.id
+                chat_id = get_chat_id_from_update(current_update_obj)
+                username = current_update_obj.effective_user.username or "test_user"
                 
-            # Подключаемся к SQLite
-            connection = sqlite3.connect(sqlite_path)
-            cursor = connection.cursor()
-            
-            # Импортируем префикс таблицы
-            try:
-                from credentials.postgres.config import BOT_PREFIX
-            except (ImportError, AttributeError):
-                BOT_PREFIX = "tgbot_"
+                logger.info(f"Добавление текущего пользователя в БД: user_id={user_id}, chat_id={chat_id}, username={username}")
                 
-            try:
-                # Проверяем существование таблицы пользователей
-                cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{BOT_PREFIX}users'")
-                if not cursor.fetchone():
-                    logger.error(f"Таблица {BOT_PREFIX}users не найдена в SQLite")
-                    return []
-                    
-                # Получаем chat_id пользователей
-                cursor.execute(f"SELECT DISTINCT chat_id FROM {BOT_PREFIX}users")
-                chat_ids = [row[0] for row in cursor.fetchall()]
-                logger.info(f"Получено {len(chat_ids)} chat_id пользователей из SQLite")
-                return chat_ids
-            except Exception as e:
-                logger.error(f"Ошибка при работе с SQLite: {e}")
-                return []
-            finally:
-                connection.close()
-        else:
-            # Используем PostgreSQL
-            from easy_bot import get_db_connection, BOT_PREFIX
-            
-            # Получаем соединение с базой данных
-            conn = await get_db_connection()
-            if conn is None:
-                logger.error("Не удалось подключиться к базе данных PostgreSQL")
-                return []
-            
-            try:
-                # PostgreSQL запрос
-                query = f"SELECT DISTINCT chat_id FROM {BOT_PREFIX}users"
+                await conn.execute(
+                    f"INSERT INTO {BOT_PREFIX}users (user_id, chat_id, username) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET chat_id = $2, username = $3",
+                    user_id, chat_id, username
+                )
                 
-                # Выполняем запрос
+                # Получаем обновленный список пользователей
                 rows = await conn.fetch(query)
-                
-                # Извлекаем chat_id из результата
                 chat_ids = [row['chat_id'] for row in rows]
-                logger.info(f"Получено {len(chat_ids)} chat_id пользователей из PostgreSQL")
-                return chat_ids
-            except Exception as e:
-                logger.error(f"Ошибка при получении chat_id пользователей из PostgreSQL: {e}")
-                return []
-            finally:
-                if conn:
-                    await conn.close()
+                logger.info(f"После добавления получено {len(chat_ids)} chat_id пользователей")
+            else:
+                logger.error("Не удалось получить информацию о текущем пользователе для добавления тестового пользователя")
+                
+                # Используем тестовые данные
+                test_user_id = 123456789
+                test_chat_id = 123456789
+                test_username = "test_user"
+                
+                logger.info(f"Добавление тестового пользователя в БД: user_id={test_user_id}, chat_id={test_chat_id}, username={test_username}")
+                
+                await conn.execute(
+                    f"INSERT INTO {BOT_PREFIX}users (user_id, chat_id, username) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET chat_id = $2, username = $3",
+                    test_user_id, test_chat_id, test_username
+                )
+                
+                # Получаем обновленный список пользователей
+                rows = await conn.fetch(query)
+                chat_ids = [row['chat_id'] for row in rows]
+                logger.info(f"После добавления получено {len(chat_ids)} chat_id пользователей")
+        
+        return chat_ids
     except Exception as e:
-        logger.error(f"Общая ошибка при получении chat_id пользователей: {e}")
+        logger.error(f"Ошибка при получении chat_id пользователей из PostgreSQL: {e}")
+        # Возвращаем пустой список вместо выброса исключения
         return []
+    finally:
+        if conn:
+            await conn.close()
 
 async def send_message_to_chat(chat_id: int, message: str) -> bool:
     """
@@ -103,22 +103,18 @@ async def send_message_to_chat(chat_id: int, message: str) -> bool:
         message: Текст сообщения
         
     Returns:
-        bool: True, если сообщение успешно отправлено, иначе False
+        bool: True, если сообщение успешно отправлено
     """
-    try:
-        # Получаем экземпляр приложения
-        app = get_bot_instance()
-        if app is None:
-            logger.error("Экземпляр бота не найден")
-            return False
-        
-        # Отправляем сообщение с помощью bot, а не application
-        await app.bot.send_message(chat_id=chat_id, text=message)
-        logger.info(f"Сообщение отправлено пользователю с chat_id {chat_id}")
-        return True
-    except Exception as e:
-        logger.error(f"Ошибка при отправке сообщения пользователю с chat_id {chat_id}: {e}")
-        return False
+    # Получаем экземпляр приложения
+    app = get_bot_instance()
+    if app is None:
+        logger.error("Экземпляр бота не найден")
+        raise RuntimeError("Экземпляр бота не найден")
+    
+    # Отправляем сообщение с помощью bot, а не application
+    await app.bot.send_message(chat_id=chat_id, text=message)
+    logger.info(f"Сообщение отправлено пользователю с chat_id {chat_id}")
+    return True
 
 async def announce(message: str, recipients: Union[List[int], str]) -> bool:
     """
@@ -129,24 +125,27 @@ async def announce(message: str, recipients: Union[List[int], str]) -> bool:
         recipients: Список chat_id пользователей или строка "all" для отправки всем
         
     Returns:
-        bool: True, если сообщения успешно отправлены, иначе False
+        bool: True, если сообщения успешно отправлены
     """
     if not message:
         logger.error("Пустое сообщение")
         return False
     
-    logger.info(f"Начинаем отправку объявления: '{message[:30]}...' получателям: {recipients}")
-    
     # Определяем получателей
     chat_ids = []
     if recipients == "all":
-        logger.info("Запрашиваем список всех пользователей из БД")
-        # Получаем пользователей из базы данных
+        # Получаем пользователей из базы данных PostgreSQL
         chat_ids = await get_all_user_chat_ids()
+        if not chat_ids:
+            logger.error("Не найдено пользователей в базе данных PostgreSQL")
+            return False
         logger.info(f"Отправка объявления всем ({len(chat_ids)}) пользователям")
     elif isinstance(recipients, list):
+        if not recipients:
+            logger.error("Пустой список получателей")
+            return False
         chat_ids = recipients
-        logger.info(f"Отправка объявления {len(chat_ids)} указанным пользователям: {chat_ids}")
+        logger.info(f"Отправка объявления {len(chat_ids)} указанным пользователям")
     elif isinstance(recipients, (int, str)) and str(recipients).isdigit():
         # Обработка одного ID пользователя
         chat_ids = [int(recipients)]
@@ -155,18 +154,6 @@ async def announce(message: str, recipients: Union[List[int], str]) -> bool:
         logger.error(f"Неверный формат получателей: {recipients}")
         return False
     
-    if not chat_ids:
-        logger.warning("Нет получателей для отправки объявления")
-        
-        # Если не найдено получателей в БД, используем текущего пользователя
-        current_chat_id = get_chat_id_from_update(current_update)
-        if current_chat_id:
-            chat_ids = [current_chat_id]
-            logger.info(f"Добавлен текущий пользователь (chat_id: {current_chat_id}) как получатель")
-        else:
-            logger.error("Не удалось получить ID чата текущего пользователя")
-            return False
-    
     # Убираем дубликаты
     chat_ids = list(set(chat_ids))
     logger.info(f"Итоговый список получателей: {chat_ids}")
@@ -174,12 +161,15 @@ async def announce(message: str, recipients: Union[List[int], str]) -> bool:
     # Отправляем сообщение всем получателям
     success_count = 0
     for chat_id in chat_ids:
-        logger.info(f"Отправка сообщения пользователю с chat_id {chat_id}...")
-        if await send_message_to_chat(chat_id, message):
+        try:
+            await send_message_to_chat(chat_id, message)
             success_count += 1
-            logger.info(f"Успешно отправлено сообщение пользователю {chat_id}")
-        else:
-            logger.error(f"Не удалось отправить сообщение пользователю {chat_id}")
+        except Exception as e:
+            logger.error(f"Ошибка при отправке сообщения пользователю {chat_id}: {e}")
     
-    logger.info(f"Объявление отправлено {success_count} из {len(chat_ids)} получателей")
-    return success_count > 0 
+    success_rate = success_count / len(chat_ids) if chat_ids else 0
+    if success_rate < 0.5:  # Если больше половины отправок не удались
+        logger.error(f"Менее половины сообщений доставлено: {success_count} из {len(chat_ids)}")
+        return False
+    
+    return True 

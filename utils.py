@@ -21,7 +21,7 @@ async def start_custom_survey(questions, callback_name, survey_id, rewrite_data=
 
 async def send_announcement(message_text: str, recipients: Union[List[int], str, int]) -> bool:
     """
-    Отправляет объявление указанным получателям.
+    Отправляет объявление указанным получателям через прямое подключение к PostgreSQL.
     
     Args:
         message_text: Текст объявления
@@ -29,10 +29,12 @@ async def send_announcement(message_text: str, recipients: Union[List[int], str,
         
     Returns:
         bool: True если отправка успешно выполнена, иначе False
+        
+    Raises:
+        Exception: В случае любой ошибки при работе с PostgreSQL
     """
-    try:
-        from announcement import announce
-        return await announce(message_text, recipients)
-    except Exception as e:
-        logger.error(f"Ошибка при отправке объявления: {e}")
-        return False 
+    from announcement import announce
+    
+    # Напрямую используем модуль без проверки соединения, так как
+    # теперь announce сам напрямую подключается к базе данных
+    return await announce(message_text, recipients) 

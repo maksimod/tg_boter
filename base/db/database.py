@@ -108,6 +108,26 @@ def init_database():
                     )
                 """)
                 
+                # Проверяем наличие столбца notification_text в таблице уведомлений
+                logger.info(f"Проверка наличия столбца notification_text в таблице {NOTIFICATIONS_TABLE}")
+                try:
+                    cursor.execute(f"""
+                        SELECT column_name 
+                        FROM information_schema.columns 
+                        WHERE table_name = '{NOTIFICATIONS_TABLE.lower()}' AND column_name = 'notification_text'
+                    """)
+                    has_notification_text = cursor.fetchone()
+                    
+                    if not has_notification_text:
+                        logger.warning(f"Столбец notification_text не найден в таблице {NOTIFICATIONS_TABLE}, добавляем его")
+                        cursor.execute(f"""
+                            ALTER TABLE {NOTIFICATIONS_TABLE}
+                            ADD COLUMN notification_text TEXT
+                        """)
+                        logger.info(f"Столбец notification_text успешно добавлен в таблицу {NOTIFICATIONS_TABLE}")
+                except Exception as e:
+                    logger.error(f"Ошибка при проверке или добавлении столбца notification_text: {e}")
+                
                 conn.commit()
                 logger.info("Таблицы в базе данных успешно созданы/обновлены")
                 

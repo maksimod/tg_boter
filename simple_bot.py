@@ -1,11 +1,10 @@
 from imports import *
 from utils import logger, chat_id, start_custom_survey
+from telegram import Update
 
 @start
 def start():
-    auto_write_translated_message("Как?")
     auto_write_translated_message("Привет! Я простой бот.")
-    auto_write_translated_message("Пока! Я простой бот.")
     auto_message_with_buttons("Выберите действие:", [
         ["Информация", "info"],
         ["Помощь", "help"],
@@ -16,7 +15,7 @@ def start():
         ["Гугл", "google_test"],
         [["О боте", "about"], ["Выход", "exit"]],
         ["Создать объявление", "create_announcement"],
-        ["Тестовое объявление", "test_announcement"]
+        ["Инициализировать базу данных", "init_database"]
     ])
 
 @callback("google_test")
@@ -46,27 +45,6 @@ def info_more():
 @callback("help")
 def help():
     auto_write_translated_message("Это справочное сообщение. Используйте кнопки для навигации.")
-    
-    async def announce_example():
-        try:
-            # Получаем chat_id текущего пользователя
-            current_chat_id = get_chat_id_from_update()
-            logger.info(f"ID чата текущего пользователя для объявления: {current_chat_id}")
-            
-            if current_chat_id:
-                success = await announce("ВНИМАНИЕ ВСЕМ", [current_chat_id])
-                if success:
-                    logger.info(f"Тестовое объявление отправлено пользователю {current_chat_id}")
-                else:
-                    logger.error("Не удалось отправить тестовое объявление")
-            else:
-                logger.error("Не удалось получить ID чата текущего пользователя")
-        except Exception as e:
-            logger.error(f"Ошибка при отправке тестового объявления: {e}")
-    
-    # Запускаем асинхронную задачу для отправки объявления
-    asyncio.create_task(announce_example())
-    
     auto_button([
         ["Вернуться в меню", "back_to_menu"]
     ])
@@ -194,42 +172,21 @@ def process_announcement(answers=None, update=None, context=None):
     announcement_text = answers[0]
     recipient_choice = answers[1]
     
-    current_chat_id = get_chat_id_from_update(current_upd)
-    logger.info(f"ID чата текущего пользователя: {current_chat_id}")
-    
     if recipient_choice == "all_recipients":
         # Отправляем всем пользователям
         auto_write_translated_message("Отправляю объявление всем пользователям...")
         
         async def send_to_all():
             try:
-                # Отправляем объявление всем пользователям
+                # Отправляем объявление всем пользователям из PostgreSQL
                 success = await announce(announcement_text, "all")
-                
                 if success:
-                    auto_write_translated_message("Объявление успешно отправлено всем пользователям.")
+                    auto_write_translated_message("Объявление успешно отправлено всем пользователям!")
                 else:
-                    # Если отправка не удалась, пробуем отправить только текущему пользователю
-                    logger.warning("Не удалось отправить всем пользователям, пробуем отправить только вам.")
-                    if current_chat_id:
-                        direct_success = await announce(announcement_text, [current_chat_id])
-                        if direct_success:
-                            auto_write_translated_message("Объявление отправлено только вам из-за проблем с базой данных.")
-                        else:
-                            auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
-                    else:
-                        auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
+                    auto_write_translated_message("Ошибка при отправке объявления. Убедитесь, что PostgreSQL настроен правильно.")
             except Exception as e:
-                logger.error(f"Ошибка при отправке объявления: {str(e)}")
-                auto_write_translated_message(f"Произошла ошибка: {str(e)}")
-                
-                # В любом случае пробуем отправить текущему пользователю
-                if current_chat_id:
-                    try:
-                        await announce(announcement_text, [current_chat_id])
-                        auto_write_translated_message("Объявление отправлено только вам.")
-                    except Exception:
-                        pass
+                logger.error(f"Ошибка при отправке объявления: {e}")
+                auto_write_translated_message(f"Ошибка: {str(e)}")
         
         asyncio.create_task(send_to_all())
     elif recipient_choice == "specific_recipients":
@@ -240,74 +197,224 @@ def process_announcement(answers=None, update=None, context=None):
         @on_auto_text_message
         async def handle_user_ids(message_text):
             try:
-                if message_text.strip().lower() == "я":
-                    # Если пользователь вводит "я", отправляем только ему
-                    user_ids = [current_chat_id]
-                    auto_write_translated_message(f"Отправляю объявление только вам (ID: {current_chat_id})...")
-                else:
-                    # Парсим список ID через запятую
-                    user_ids = [int(user_id.strip()) for user_id in message_text.split(',')]
-                    
-                    # Проверяем, включен ли текущий пользователь
-                    if current_chat_id and current_chat_id not in user_ids:
-                        user_ids.append(current_chat_id)
-                        auto_write_translated_message(f"Добавлен ваш ID ({current_chat_id}) к списку получателей.")
+                # Парсим список ID через запятую
+                user_ids = [int(user_id.strip()) for user_id in message_text.split(',')]
+                
+                if not user_ids:
+                    auto_write_translated_message("Не указаны ID пользователей.")
+                    return
                 
                 # Отправляем объявление
                 auto_write_translated_message("Отправляю объявление...")
-                success = await announce(announcement_text, user_ids)
-                
-                if success:
-                    auto_write_translated_message(f"Объявление отправлено {len(user_ids)} пользователям.")
-                else:
-                    auto_write_translated_message("Не удалось отправить объявление. Пожалуйста, попробуйте позже.")
+                try:
+                    success = await announce(announcement_text, user_ids)
+                    if success:
+                        auto_write_translated_message(f"Объявление отправлено {len(user_ids)} пользователям.")
+                    else:
+                        auto_write_translated_message("Ошибка при отправке объявления.")
+                except Exception as e:
+                    logger.error(f"Ошибка при отправке объявления: {e}")
+                    auto_write_translated_message(f"Ошибка: {str(e)}")
             except ValueError:
-                auto_write_translated_message("Неверный формат ID. Используйте только числа, разделённые запятыми, или введите 'я' для отправки только себе.")
-            except Exception as e:
-                logger.error(f"Ошибка при обработке ID пользователей: {e}")
-                auto_write_translated_message(f"Произошла ошибка: {str(e)}")
+                auto_write_translated_message("Неверный формат ID. Используйте только числа, разделённые запятыми.")
+            
+            # Возвращаемся в меню
+            auto_button([
+                ["Вернуться в меню", "back_to_menu"]
+            ])
     
     # Возвращаемся в главное меню
     auto_button([
         ["Вернуться в меню", "back_to_menu"]
     ])
 
-@callback("test_announcement")
-def test_announcement():
-    auto_write_translated_message("Отправляю тестовое объявление...")
+@callback("init_database")
+def init_database():
+    # Инициализируем базу данных
+    auto_write_translated_message("⚙️ Инициализация базы данных...")
     
-    # Получаем ID чата текущего пользователя
-    current_chat_id = get_chat_id_from_update()
-    logger.info(f"ID чата текущего пользователя для тестового объявления: {current_chat_id}")
-    
-    async def send_test_directly():
-        try:
-            if current_chat_id:
-                message = "Это тестовое сообщение для проверки функциональности объявлений."
+    # Импортируем необходимые модули
+    try:
+        import asyncio
+        import asyncpg
+        from credentials.postgres.config import HOST, PORT, DATABASE, USER, PASSWORD, BOT_PREFIX
+        
+        async def init_db():
+            try:
+                # Устанавливаем соединение
+                conn = await asyncpg.connect(
+                    host=HOST,
+                    port=PORT,
+                    user=USER,
+                    password=PASSWORD,
+                    database=DATABASE,
+                    timeout=10.0
+                )
                 
-                # Получаем экземпляр бота напрямую для отправки сообщения
-                from easy_bot import get_bot_instance
-                app = get_bot_instance()
+                # Создаем необходимые таблицы
+                users_table = f"{BOT_PREFIX}users"
+                notifications_table = f"{BOT_PREFIX}notifications"
                 
-                if app and hasattr(app, 'bot'):
-                    logger.info(f"Отправка тестового сообщения напрямую через bot.send_message")
-                    await app.bot.send_message(chat_id=current_chat_id, text=message)
-                    auto_write_translated_message("Тестовое сообщение отправлено напрямую! Проверьте что оно пришло.")
-                else:
-                    logger.error("Не удалось получить экземпляр бота для отправки")
-                    auto_write_translated_message("Не удалось получить экземпляр бота для отправки. Проверьте логи.")
-            else:
-                auto_write_translated_message("Не удалось определить ваш ID чата.")
-        except Exception as e:
-            logger.error(f"Ошибка при прямой отправке тестового сообщения: {e}")
-            auto_write_translated_message(f"Ошибка при отправке: {str(e)}")
-    
-    asyncio.create_task(send_test_directly())
-    
-    auto_button([
-        ["Вернуться в меню", "back_to_menu"]
-    ])
+                # Таблица пользователей
+                await conn.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {users_table} (
+                        id SERIAL PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        username TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id)
+                    )
+                ''')
+                
+                # Таблица уведомлений с правильной структурой
+                await conn.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {notifications_table} (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        notification_text TEXT,
+                        notification_time TIMESTAMP WITH TIME ZONE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        is_sent BOOLEAN DEFAULT FALSE
+                    )
+                ''')
+                
+                # Проверяем наличие столбца notification_text
+                has_column = await conn.fetchval(f'''
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = $1
+                        AND column_name = 'notification_text'
+                    )
+                ''', notifications_table.lower())
+                
+                if not has_column:
+                    await conn.execute(f'''
+                        ALTER TABLE {notifications_table}
+                        ADD COLUMN notification_text TEXT
+                    ''')
+                
+                await conn.close()
+                return True
+            except Exception as e:
+                print(f"Ошибка при инициализации базы данных: {e}")
+                auto_write_translated_message(f"❌ Ошибка инициализации БД: {e}")
+                return False
+                
+        # Запускаем инициализацию в фоне
+        result = asyncio.run(init_db())
+        
+        if result:
+            auto_write_translated_message("✅ База данных успешно инициализирована!")
+        else:
+            auto_write_translated_message("❌ Ошибка при инициализации базы данных.")
+        
+    except Exception as e:
+        auto_write_translated_message(f"❌ Ошибка: {e}")
 
 if __name__ == "__main__":
     from base.bot_init import initialize_bot
-    initialize_bot()
+    from easy_bot import run_bot, get_bot_instance
+    import asyncio
+    import sys
+    from telegram import Update
+    
+    # Для Windows используем специальный подход для асинхронного запуска
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Создаем новый event loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Инициализируем базу данных при запуске
+        import asyncpg
+        from credentials.postgres.config import HOST, PORT, DATABASE, USER, PASSWORD, BOT_PREFIX
+        
+        async def init_db():
+            print("Инициализация базы данных при запуске бота...")
+            conn = None
+            try:
+                # Устанавливаем соединение
+                conn = await asyncpg.connect(
+                    host=HOST,
+                    port=PORT,
+                    user=USER,
+                    password=PASSWORD,
+                    database=DATABASE,
+                    timeout=10.0
+                )
+                
+                # Создаем необходимые таблицы
+                users_table = f"{BOT_PREFIX}users"
+                notifications_table = f"{BOT_PREFIX}notifications"
+                
+                # Таблица пользователей
+                await conn.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {users_table} (
+                        id SERIAL PRIMARY KEY,
+                        chat_id BIGINT NOT NULL,
+                        user_id BIGINT NOT NULL,
+                        username TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(user_id)
+                    )
+                ''')
+                
+                # Таблица уведомлений с правильной структурой
+                await conn.execute(f'''
+                    CREATE TABLE IF NOT EXISTS {notifications_table} (
+                        id SERIAL PRIMARY KEY,
+                        user_id BIGINT NOT NULL,
+                        notification_text TEXT,
+                        notification_time TIMESTAMP WITH TIME ZONE,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        is_sent BOOLEAN DEFAULT FALSE
+                    )
+                ''')
+                
+                # Проверяем наличие столбца notification_text
+                has_column = await conn.fetchval(f'''
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = $1
+                        AND column_name = 'notification_text'
+                    )
+                ''', notifications_table.lower())
+                
+                if not has_column:
+                    print(f"Добавление столбца notification_text в таблицу {notifications_table}")
+                    await conn.execute(f'''
+                        ALTER TABLE {notifications_table}
+                        ADD COLUMN notification_text TEXT
+                    ''')
+                    print(f"Столбец notification_text успешно добавлен")
+                
+                print("База данных успешно инициализирована при запуске!")
+                return True
+            except Exception as e:
+                print(f"Ошибка при инициализации базы данных при запуске: {e}")
+                return False
+            finally:
+                if conn:
+                    await conn.close()
+        
+        # Выполняем инициализацию базы данных
+        loop.run_until_complete(init_db())
+        
+        # Инициализируем и запускаем бота (в том же event loop)
+        app = initialize_bot()
+        if app:
+            print("Бот инициализирован, запускаем...")
+            # Запускаем бота в том же event loop
+            app.run_polling(allowed_updates=Update.ALL_TYPES)
+        else:
+            print("Ошибка: бот не был инициализирован")
+    except Exception as e:
+        print(f"Критическая ошибка при запуске: {e}")
+    finally:
+        # Закрываем event loop при выходе
+        loop.close()
