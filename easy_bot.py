@@ -1446,6 +1446,7 @@ def callback(callback_data):
     """
     def decorator(func):
         async def async_wrapper(*args, **kwargs):
+            import inspect
             print(f"[CALLBACK] Executing callback {callback_data} with args: {args} and kwargs: {kwargs}")
             try:
                 # Автоматически обновляем глобальный chat_id при вызове callback
@@ -1455,7 +1456,6 @@ def callback(callback_data):
                 # Если args содержит позиционные аргументы, но функция их не ожидает,
                 # преобразуем их в именованные параметры
                 if args and not kwargs:
-                    import inspect
                     sig = inspect.signature(func)
                     params = list(sig.parameters.keys())
                     
@@ -1466,6 +1466,12 @@ def callback(callback_data):
                 
                 # Вызываем функцию с правильными аргументами
                 result = func(*args, **kwargs)
+                
+                # Проверяем, является ли результат корутиной (для асинхронных функций)
+                if inspect.iscoroutine(result):
+                    # Если это корутина, ожидаем ее завершения
+                    result = await result
+                    
                 print(f"[CALLBACK] Function {callback_data} returned: {result}")
                 
                 # Запускаем автоматические функции

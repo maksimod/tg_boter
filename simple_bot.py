@@ -19,12 +19,10 @@ def start():
     ])
 
 @callback("google_test")
-def google_test():
+async def google_test():
     auto_write_translated_message("Тестим...")
-    async def get_google_data(): 
-        result = await google_sheets('1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
-        print(result)
-    asyncio.create_task(get_google_data())
+    result = await google_sheets('1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
+    print(result)
 
 @callback("info")
 def info():
@@ -165,83 +163,28 @@ def create_announcement_callback():
     start_custom_survey(questions, "process_announcement", survey_id)
 
 @callback("process_announcement")
-def process_announcement(answers=None, update=None, context=None):
+async def process_announcement(answers=None, update=None, context=None):
     current_upd = update or current_update
-    current_ctx = context or current_context
     
-    announcement_text = answers[0]
-    recipient_choice = answers[1]
-    
-    if recipient_choice == "all_recipients":
-        # Отправляем всем пользователям
-        auto_write_translated_message("Отправляю объявление всем пользователям...")
+    if answers and len(answers) >= 2:
+        announcement_text = answers[0]
+        recipient_choice = answers[1]
         
-        async def send_to_all():
-            try:
-                # Отправляем объявление всем пользователям из PostgreSQL
-                success = await announce(announcement_text, "all")
-                if success:
-                    auto_write_translated_message("Объявление успешно отправлено всем пользователям!")
-                else:
-                    auto_write_translated_message("Ошибка при отправке объявления. Убедитесь, что PostgreSQL настроен правильно.")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке объявления: {e}")
-                auto_write_translated_message(f"Ошибка: {str(e)}")
-        
-        asyncio.create_task(send_to_all())
-    elif recipient_choice == "specific_recipients":
-        # Запрашиваем конкретные ID пользователей
-        auto_write_translated_message("Введите ID пользователей через запятую (например: 123456789, 987654321)")
-        
-        # Настраиваем обработчик сообщений для получения списка ID
-        @on_auto_text_message
-        async def handle_user_ids(message_text):
-            try:
-                # Парсим список ID через запятую
-                user_ids = [int(user_id.strip()) for user_id in message_text.split(',')]
-                
-                if not user_ids:
-                    auto_write_translated_message("Не указаны ID пользователей.")
-                    return
-                
-                # Отправляем объявление
-                auto_write_translated_message("Отправляю объявление...")
-                try:
-                    success = await announce(announcement_text, user_ids)
-                    if success:
-                        auto_write_translated_message(f"Объявление отправлено {len(user_ids)} пользователям.")
-                    else:
-                        auto_write_translated_message("Ошибка при отправке объявления.")
-                except Exception as e:
-                    logger.error(f"Ошибка при отправке объявления: {e}")
-                    auto_write_translated_message(f"Ошибка: {str(e)}")
-            except ValueError:
-                auto_write_translated_message("Неверный формат ID. Используйте только числа, разделённые запятыми.")
-            
-            # Возвращаемся в меню
-            auto_button([
-                ["Вернуться в меню", "back_to_menu"]
-            ])
-    
-    # Возвращаемся в главное меню
-    auto_button([
-        ["Вернуться в меню", "back_to_menu"]
-    ])
-
-@callback("init_database")
-def init_database():
-    # Инициализируем базу данных
-    auto_write_translated_message("⚙️ Инициализация базы данных...")
-    
-    # Импортируем необходимые модули
-    try:
+        # Инициализируем PostgreSQL перед отправкой объявления
         import asyncio
         import asyncpg
         from credentials.postgres.config import HOST, PORT, DATABASE, USER, PASSWORD, BOT_PREFIX
         
-        async def init_db():
+        # Получаем текущего пользователя и его chat_id
+        current_user_id = current_upd.effective_user.id
+        current_chat_id = get_chat_id_from_update(current_upd)
+        
+        if recipient_choice == "all_recipients":
+            # Отправляем объявление всем пользователям
+            auto_write_translated_message("Отправляю объявление всем пользователям...")
+            
             try:
-                # Устанавливаем соединение
+                # Добавляем текущего пользователя в базу данных
                 conn = await asyncpg.connect(
                     host=HOST,
                     port=PORT,
@@ -251,64 +194,156 @@ def init_database():
                     timeout=10.0
                 )
                 
-                # Создаем необходимые таблицы
+                # Проверяем существование таблицы
                 users_table = f"{BOT_PREFIX}users"
-                notifications_table = f"{BOT_PREFIX}notifications"
+                table_exists = await conn.fetchval(
+                    "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_name=$1)",
+                    users_table
+                )
                 
-                # Таблица пользователей
-                await conn.execute(f'''
-                    CREATE TABLE IF NOT EXISTS {users_table} (
-                        id SERIAL PRIMARY KEY,
-                        chat_id BIGINT NOT NULL,
-                        user_id BIGINT NOT NULL,
-                        username TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(user_id)
-                    )
-                ''')
-                
-                # Таблица уведомлений с правильной структурой
-                await conn.execute(f'''
-                    CREATE TABLE IF NOT EXISTS {notifications_table} (
-                        id SERIAL PRIMARY KEY,
-                        user_id BIGINT NOT NULL,
-                        notification_text TEXT,
-                        notification_time TIMESTAMP WITH TIME ZONE,
-                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                        is_sent BOOLEAN DEFAULT FALSE
-                    )
-                ''')
-                
-                # Проверяем наличие столбца notification_text
-                has_column = await conn.fetchval(f'''
-                    SELECT EXISTS (
-                        SELECT 1
-                        FROM information_schema.columns
-                        WHERE table_name = $1
-                        AND column_name = 'notification_text'
-                    )
-                ''', notifications_table.lower())
-                
-                if not has_column:
+                if not table_exists:
+                    # Создаем таблицу пользователей, если она не существует
                     await conn.execute(f'''
-                        ALTER TABLE {notifications_table}
-                        ADD COLUMN notification_text TEXT
+                        CREATE TABLE {users_table} (
+                            id SERIAL PRIMARY KEY,
+                            chat_id BIGINT NOT NULL,
+                            user_id BIGINT NOT NULL,
+                            username TEXT,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(user_id)
+                        )
                     ''')
                 
-                await conn.close()
-                return True
-            except Exception as e:
-                print(f"Ошибка при инициализации базы данных: {e}")
-                auto_write_translated_message(f"❌ Ошибка инициализации БД: {e}")
-                return False
+                # Добавляем текущего пользователя в базу данных
+                await conn.execute(
+                    f"INSERT INTO {users_table} (user_id, chat_id, username) VALUES ($1, $2, $3) ON CONFLICT (user_id) DO UPDATE SET chat_id = $2, username = $3",
+                    current_user_id, current_chat_id, current_upd.effective_user.username
+                )
                 
-        # Запускаем инициализацию в фоне
-        result = asyncio.run(init_db())
+                # Закрываем соединение
+                await conn.close()
+                
+                # Отправляем объявление
+                success = await announce(announcement_text, [current_chat_id])
+                
+                if success:
+                    auto_write_translated_message(f"✅ Объявление успешно отправлено вам!\n\nТекст объявления: {announcement_text}")
+                else:
+                    auto_write_translated_message("❌ Ошибка при отправке объявления.")
+                
+            except Exception as e:
+                logger.error(f"Ошибка при отправке объявления: {e}")
+                auto_write_translated_message(f"❌ Ошибка: {str(e)}")
+            
+            # Добавляем кнопку для возврата в меню
+            auto_button([
+                ["Вернуться в меню", "back_to_menu"]
+            ])
+        elif recipient_choice == "specific_recipients":
+            # Запрашиваем конкретные ID пользователей
+            auto_write_translated_message("Введите ID пользователей через запятую (например: 123456789, 987654321)")
+            
+            # Настраиваем обработчик сообщений для получения списка ID
+            @on_auto_text_message
+            async def handle_user_ids(message_text):
+                try:
+                    # Парсим список ID через запятую
+                    user_ids = [int(user_id.strip()) for user_id in message_text.split(',')]
+                    
+                    if not user_ids:
+                        auto_write_translated_message("Не указаны ID пользователей.")
+                        return
+                    
+                    # Отправляем объявление
+                    auto_write_translated_message("Отправляю объявление...")
+                    try:
+                        success = await announce(announcement_text, user_ids)
+                        if success:
+                            auto_write_translated_message(f"Объявление отправлено {len(user_ids)} пользователям.")
+                        else:
+                            auto_write_translated_message("Ошибка при отправке объявления.")
+                    except Exception as e:
+                        logger.error(f"Ошибка при отправке объявления: {e}")
+                        auto_write_translated_message(f"Ошибка: {str(e)}")
+                except ValueError:
+                    auto_write_translated_message("Неверный формат ID. Используйте только числа, разделённые запятыми.")
+                
+                # Возвращаемся в меню
+                auto_button([
+                    ["Вернуться в меню", "back_to_menu"]
+                ])
+    
+    # Возвращаемся в главное меню
+    auto_button([
+        ["Вернуться в меню", "back_to_menu"]
+    ])
+
+@callback("init_database")
+async def init_database():
+    # Инициализируем базу данных
+    auto_write_translated_message("⚙️ Инициализация базы данных...")
+    
+    # Импортируем необходимые модули
+    try:
+        import asyncpg
+        from credentials.postgres.config import HOST, PORT, DATABASE, USER, PASSWORD, BOT_PREFIX
         
-        if result:
-            auto_write_translated_message("✅ База данных успешно инициализирована!")
-        else:
-            auto_write_translated_message("❌ Ошибка при инициализации базы данных.")
+        # Устанавливаем соединение
+        conn = await asyncpg.connect(
+            host=HOST,
+            port=PORT,
+            user=USER,
+            password=PASSWORD,
+            database=DATABASE,
+            timeout=10.0
+        )
+        
+        # Создаем необходимые таблицы
+        users_table = f"{BOT_PREFIX}users"
+        notifications_table = f"{BOT_PREFIX}notifications"
+        
+        # Таблица пользователей
+        await conn.execute(f'''
+            CREATE TABLE IF NOT EXISTS {users_table} (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                username TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id)
+            )
+        ''')
+        
+        # Таблица уведомлений с правильной структурой
+        await conn.execute(f'''
+            CREATE TABLE IF NOT EXISTS {notifications_table} (
+                id SERIAL PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                notification_text TEXT,
+                notification_time TIMESTAMP WITH TIME ZONE,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                is_sent BOOLEAN DEFAULT FALSE
+            )
+        ''')
+        
+        # Проверяем наличие столбца notification_text
+        has_column = await conn.fetchval(f'''
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = $1
+                AND column_name = 'notification_text'
+            )
+        ''', notifications_table.lower())
+        
+        if not has_column:
+            await conn.execute(f'''
+                ALTER TABLE {notifications_table}
+                ADD COLUMN notification_text TEXT
+            ''')
+        
+        await conn.close()
+        auto_write_translated_message("✅ База данных успешно инициализирована!")
         
     except Exception as e:
         auto_write_translated_message(f"❌ Ошибка: {e}")

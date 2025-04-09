@@ -116,60 +116,81 @@ async def send_message_to_chat(chat_id: int, message: str) -> bool:
     logger.info(f"Сообщение отправлено пользователю с chat_id {chat_id}")
     return True
 
-async def announce(message: str, recipients: Union[List[int], str]) -> bool:
+async def announce(message: str, chat_ids: Union[List[int], str, None] = None) -> bool:
     """
-    Отправляет объявление указанным получателям.
+    Отправляет объявление всем пользователям бота или указанному списку чатов.
     
     Args:
-        message: Текст сообщения
-        recipients: Список chat_id пользователей или строка "all" для отправки всем
+        message (str): Текст объявления
+        chat_ids (Union[List[int], str, None]): Список chat_id для отправки или строка 'all' для всех пользователей
         
     Returns:
-        bool: True, если сообщения успешно отправлены
+        bool: True если объявление успешно отправлено хотя бы одному пользователю, иначе False
     """
-    if not message:
-        logger.error("Пустое сообщение")
+    # Получаем инстанс бота
+    bot_app = get_bot_instance()
+    if not bot_app:
+        logger.error("Бот не инициализирован, невозможно отправить объявление")
         return False
     
     # Определяем получателей
-    chat_ids = []
-    if recipients == "all":
-        # Получаем пользователей из базы данных PostgreSQL
-        chat_ids = await get_all_user_chat_ids()
-        if not chat_ids:
-            logger.error("Не найдено пользователей в базе данных PostgreSQL")
-            return False
-        logger.info(f"Отправка объявления всем ({len(chat_ids)}) пользователям")
-    elif isinstance(recipients, list):
-        if not recipients:
-            logger.error("Пустой список получателей")
-            return False
-        chat_ids = recipients
-        logger.info(f"Отправка объявления {len(chat_ids)} указанным пользователям")
-    elif isinstance(recipients, (int, str)) and str(recipients).isdigit():
-        # Обработка одного ID пользователя
-        chat_ids = [int(recipients)]
-        logger.info(f"Отправка объявления одному пользователю с ID {recipients}")
+    recipient_chat_ids = []
+    
+    # Если chat_ids это строка 'all' или None, получаем всех пользователей из базы
+    if chat_ids == "all" or chat_ids is None:
+        try:
+            recipient_chat_ids = await get_all_user_chat_ids()
+            
+            # Если пользователей не найдено, но у нас есть текущий пользователь
+            if not recipient_chat_ids and current_update:
+                current_chat_id = get_chat_id_from_update(current_update)
+                if current_chat_id:
+                    logger.warning(f"В базе данных нет пользователей, отправляем только текущему пользователю: {current_chat_id}")
+                    recipient_chat_ids = [current_chat_id]
+                    
+        except Exception as e:
+            logger.error(f"Ошибка при получении chat_id пользователей: {e}")
+            # В случае ошибки, пробуем отправить сообщение текущему пользователю
+            if current_update:
+                current_chat_id = get_chat_id_from_update(current_update)
+                if current_chat_id:
+                    logger.info(f"Отправляем объявление только текущему пользователю: {current_chat_id}")
+                    recipient_chat_ids = [current_chat_id]
     else:
-        logger.error(f"Неверный формат получателей: {recipients}")
+        # Используем переданный список chat_ids
+        if isinstance(chat_ids, list):
+            recipient_chat_ids = chat_ids
+        else:
+            # Если передан одиночный chat_id, преобразуем его в список
+            recipient_chat_ids = [int(chat_ids)]
+    
+    # Проверяем, что есть кому отправлять
+    if not recipient_chat_ids:
+        logger.error("Не указаны получатели для отправки объявления")
         return False
     
-    # Убираем дубликаты
-    chat_ids = list(set(chat_ids))
-    logger.info(f"Итоговый список получателей: {chat_ids}")
-    
-    # Отправляем сообщение всем получателям
+    # Отправляем объявление
     success_count = 0
-    for chat_id in chat_ids:
+    total_count = len(recipient_chat_ids)
+    
+    for chat_id in recipient_chat_ids:
         try:
-            await send_message_to_chat(chat_id, message)
+            await bot_app.bot.send_message(
+                chat_id=chat_id,
+                text=message,
+                parse_mode="HTML"
+            )
+            logger.info(f"Объявление успешно отправлено пользователю {chat_id}")
             success_count += 1
         except Exception as e:
             logger.error(f"Ошибка при отправке сообщения пользователю {chat_id}: {e}")
     
-    success_rate = success_count / len(chat_ids) if chat_ids else 0
-    if success_rate < 0.5:  # Если больше половины отправок не удались
-        logger.error(f"Менее половины сообщений доставлено: {success_count} из {len(chat_ids)}")
-        return False
+    # Логируем результаты
+    logger.info(f"Объявление отправлено {success_count} из {total_count} пользователям")
     
-    return True 
+    # Если хотя бы одно сообщение доставлено, считаем успехом
+    if success_count > 0:
+        return True
+    else:
+        logger.error(f"Не удалось отправить ни одного сообщения")
+        return False 
