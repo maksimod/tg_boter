@@ -223,11 +223,11 @@ async def process_announcement(answers=None, update=None, context=None):
                 # Закрываем соединение
                 await conn.close()
                 
-                # Отправляем объявление
-                success = await announce(announcement_text, [current_chat_id])
+                # Отправляем объявление ВСЕМ пользователям
+                success = await announce(announcement_text, "all")
                 
                 if success:
-                    auto_write_translated_message(f"✅ Объявление успешно отправлено вам!\n\nТекст объявления: {announcement_text}")
+                    auto_write_translated_message(f"✅ Объявление успешно отправлено всем пользователям!\n\nТекст объявления: {announcement_text}")
                 else:
                     auto_write_translated_message("❌ Ошибка при отправке объявления.")
                 
