@@ -21,7 +21,7 @@ def start():
 def google_test():
     auto_write_translated_message("Тестим...")
     result = google_sheets('get', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
-    print("result")
+    print("result:")
     print(result)
     print("result end")
 

@@ -14,7 +14,16 @@ import logging
 from handlers.survey_handlers import process_survey_results
 from notifications.notification_manager import create_notification
 import asyncio
-from google import get_sheets as google_sheets
+import sys
+import os
+import importlib.util
+
+# Загружаем модуль google_sheets напрямую из файла
+google_sheets_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'google', 'google_sheets.py')
+spec = importlib.util.spec_from_file_location("google_sheets", google_sheets_path)
+google_sheets_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(google_sheets_module)
+google_sheets = google_sheets_module.google_sheets
 
 # Экспортируем все импортированные имена
 __all__ = [
