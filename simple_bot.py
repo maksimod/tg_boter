@@ -83,7 +83,13 @@ def google_test():
         # Выводим информацию о каждом листе
         print(f"\nКоличество листов: {len(sheets_data)}")
         for i, sheet_data in enumerate(sheets_data):
-            print(f"- Лист {i+1}: {len(sheet_data)} строк")
+            # Проверяем, является ли лист пустым
+            is_empty_sheet = False
+            if sheet_data and len(sheet_data) == 1 and ('empty_sheet' in sheet_data[0] or all(value == '' for key, value in sheet_data[0].items() if key != 'row_number')):
+                is_empty_sheet = True
+                print(f"- Лист {i+1}: 0 строк")
+            else:
+                print(f"- Лист {i+1}: {len(sheet_data)} строк")
             
             # Получаем заголовки из первой записи, если она есть
             headers = []
@@ -100,20 +106,31 @@ def google_test():
             header_str = ", ".join(headers)
             print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
             
-            # Выводим все строки данных в листе
-            print(f"  Данные листа:")
-            for row_idx, row_data in enumerate(sheet_data):
-                # Проверяем, не является ли это пустым листом
-                if 'empty_sheet' in row_data and row_data['empty_sheet']:
-                    print(f"    [Лист пустой, только заголовки]")
-                    continue
-                
-                # Выводим номер строки и все поля кроме служебных
-                row_number = row_data.get('row_number', row_idx + 1)
-                print(f"    Строка {row_number}:")
-                for key, value in row_data.items():
-                    if key not in ['row_number', 'empty_sheet']:  # Пропускаем служебные поля
-                        print(f"      {key}: {value}")
+            # Выводим данные только если лист не пустой
+            if not is_empty_sheet:
+                # Выводим все строки данных в листе
+                print(f"  Данные листа:")
+                for row_idx, row_data in enumerate(sheet_data):
+                    # Пропускаем пустые/служебные записи
+                    if 'empty_sheet' in row_data and row_data['empty_sheet']:
+                        continue
+                    
+                    # Проверяем, является ли строка пустой (все значения пустые)
+                    all_empty = True
+                    for key, value in row_data.items():
+                        if key != 'row_number' and value:
+                            all_empty = False
+                            break
+                    
+                    if all_empty:
+                        continue
+                    
+                    # Выводим номер строки и все поля кроме служебных
+                    row_number = row_data.get('row_number', row_idx + 1)
+                    print(f"    Строка {row_number}:")
+                    for key, value in row_data.items():
+                        if key not in ['row_number', 'empty_sheet']:  # Пропускаем служебные поля
+                            print(f"      {key}: {value}")
     else:
         print("Нет данных или произошла ошибка при получении данных из Google Sheets")
     

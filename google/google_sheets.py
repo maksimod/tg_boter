@@ -120,20 +120,19 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                                     # Добавляем строку в результат
                                     sheet_data.append(row_dict)
                             else:
-                                # Если есть только заголовки, но нет данных, добавляем пустой объект с заголовками
-                                # чтобы было понятно, что лист существует, но данных в нем нет
-                                row_dict = {"row_number": 1}
+                                # Если есть только заголовки, но нет данных - создаем пустой маркер с заголовками
+                                empty_dict = {"row_number": 0, "empty_sheet": True}
                                 for header in headers:
                                     if header:
-                                        row_dict[header] = ""
-                                sheet_data.append(row_dict)
+                                        empty_dict[header] = ""
+                                sheet_data.append(empty_dict)
                     
                     # Добавляем данные этого листа в общий результат, даже если лист пустой
                     if sheet_data:
                         final_result.append(sheet_data)
                     else:
-                        # Если в листе совсем нет данных, добавляем пустой объект
-                        final_result.append([{"row_number": 1, "empty_sheet": True}])
+                        # Если в листе совсем нет данных (даже заголовков), создаем пустой маркер
+                        final_result.append([{"row_number": 0, "empty_sheet": True}])
                 
                 # Проверяем, что у нас есть какие-то данные
                 if not final_result:
