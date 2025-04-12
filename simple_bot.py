@@ -27,11 +27,18 @@ def google_test():
     import os
     
     auto_write_translated_message("Тестим...")
-    result = google_sheets('get', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10')
-    
+    # Пример операции 'get' - получение данных из таблицы
+    # Первый аргумент: 'get' - тип операции
+    # Второй аргумент: ID таблицы
+    update_result = google_sheets('update', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', 'стоимость', update_data)
+    print(update_result)
     # Примеры других операций (закомментированы, чтобы не менять данные при тестировании)
     """
     # Пример добавления новой строки
+    # Первый аргумент: 'append' - тип операции
+    # Второй аргумент: ID таблицы
+    # Третий аргумент: ID листа в таблице
+    # Четвертый аргумент: словарь с данными для добавления
     append_data = {
         'стоимость': 4000,
         'продолжительность сеанса (мин)': 90,
@@ -39,114 +46,32 @@ def google_test():
         'мин. количество сеансов для акции': 3,
         'доп. информация об акции': 'Специальное предложение'
     }
-    append_result = google_sheets('append', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', append_data)
+    append_result = google_sheets('append', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', append_data)
     print("Результат добавления:", append_result)
     
     # Пример обновления строки
+    # Первый аргумент: 'update' - тип операции
+    # Второй аргумент: ID таблицы
+    # Третий аргумент: ID листа в таблице
+    # Четвертый аргумент: имя поля для идентификации строки
+    # Пятый аргумент: словарь с данными для обновления
     update_data = {
         'стоимость': 4000,
         'стоимость с акцией': 3500,
         'доп. информация об акции': 'Обновленное описание акции'
     }
-    update_result = google_sheets('update', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', 'стоимость', update_data)
+    update_result = google_sheets('update', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', 'стоимость', update_data)
     print("Результат обновления:", update_result)
     
     # Пример удаления строки
-    # Удаляем строку 3 (одну строку)
-    delete_result = google_sheets('delete', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', 3, 1)
+    # Первый аргумент: 'delete' - тип операции
+    # Второй аргумент: ID таблицы
+    # Третий аргумент: ID листа в таблице
+    # Четвертый аргумент: номер начальной строки для удаления
+    # Пятый аргумент: количество строк для удаления
+    delete_result = google_sheets('delete', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', 3, 1)
     print("Результат удаления:", delete_result)
     """
-    
-    # Выводим сжатый предпросмотр данных в консоль
-    print("\n=== Получены данные из Google Sheets ===")
-    
-    # Проверяем наличие данных
-    if result:        
-        # Преобразуем данные в список листов в зависимости от формата результата
-        sheets_data = []
-        
-        # Если результат - строка, то это несколько листов, разделенных ";"
-        if isinstance(result, str):
-            # Разбиваем строку по разделителям
-            sheets_parts = result.split(";")
-            for sheet_json in sheets_parts:
-                try:
-                    # Преобразуем каждую часть в JSON
-                    sheet_data = json.loads(sheet_json)
-                    sheets_data.append(sheet_data)
-                except json.JSONDecodeError:
-                    continue
-        else:
-            # Если результат - список, то это один лист
-            sheets_data.append(result)
-        
-        # Выводим информацию о каждом листе
-        print(f"\nКоличество листов: {len(sheets_data)}")
-        for i, sheet_data in enumerate(sheets_data):
-            # Проверяем, является ли лист пустым
-            is_empty_sheet = False
-            if sheet_data and len(sheet_data) == 1 and ('empty_sheet' in sheet_data[0] or all(value == '' for key, value in sheet_data[0].items() if key != 'row_number')):
-                is_empty_sheet = True
-                print(f"- Лист {i+1}: 0 строк")
-            else:
-                print(f"- Лист {i+1}: {len(sheet_data)} строк")
-            
-            # Получаем заголовки из первой записи, если она есть
-            headers = []
-            if sheet_data and len(sheet_data) > 0:
-                headers = list(sheet_data[0].keys())
-                # Удаляем row_number из списка заголовков для отображения
-                if 'row_number' in headers:
-                    headers.remove('row_number')
-                # Удаляем служебное поле empty_sheet, если оно есть
-                if 'empty_sheet' in headers:
-                    headers.remove('empty_sheet')
-            
-            # Выводим заголовки листа
-            header_str = ", ".join(headers)
-            print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
-            
-            # Выводим данные только если лист не пустой
-            if not is_empty_sheet:
-                # Выводим все строки данных в листе
-                print(f"  Данные листа:")
-                for row_idx, row_data in enumerate(sheet_data):
-                    # Пропускаем пустые/служебные записи
-                    if 'empty_sheet' in row_data and row_data['empty_sheet']:
-                        continue
-                    
-                    # Проверяем, является ли строка пустой (все значения пустые)
-                    all_empty = True
-                    for key, value in row_data.items():
-                        if key != 'row_number' and value:
-                            all_empty = False
-                            break
-                    
-                    if all_empty:
-                        continue
-                    
-                    # Выводим номер строки и все поля кроме служебных
-                    row_number = row_data.get('row_number', row_idx + 1)
-                    print(f"    Строка {row_number}:")
-                    for key, value in row_data.items():
-                        if key not in ['row_number', 'empty_sheet']:  # Пропускаем служебные поля
-                            print(f"      {key}: {value}")
-    else:
-        print("Нет данных или произошла ошибка при получении данных из Google Sheets")
-    
-    # Сохраняем полные данные в JSON-файл для программного использования
-    
-    # Создаем директорию для данных, если она не существует
-    os.makedirs("data", exist_ok=True)
-    
-    # Сохраняем данные в JSON-файл
-    json_path = "data/google_sheets_data.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
-    
-    print(f"\nПолные данные сохранены в файл: {json_path}")
-    print("Этот формат удобен для программного использования и работы с нейросетями.")
-    print("=== Конец данных из Google Sheets ===\n")
 
 @callback("info")
 def info():
