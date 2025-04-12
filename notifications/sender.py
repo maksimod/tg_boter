@@ -3,7 +3,6 @@
 Включает функции проверки и отправки уведомлений по расписанию.
 """
 import asyncio
-import logging
 import traceback
 from datetime import datetime, timedelta
 import pytz
@@ -15,28 +14,6 @@ from base.db import (
     mark_notification_as_sent, fix_notification_timezone, 
     get_notifications_to_send
 )
-
-# Получаем логгер
-logger = logging.getLogger(__name__)
-
-# Установка уровня логирования для модуля
-logger.setLevel(logging.DEBUG)
-
-# Добавление обработчика для вывода в консоль
-console_handler = logging.StreamHandler(sys.stdout)
-console_handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-console_handler.setFormatter(formatter)
-
-# Добавляем обработчик к логгеру, если его еще нет
-if not logger.handlers:
-    logger.addHandler(console_handler)
-    
-    # Добавляем также обработчик для записи в файл
-    file_handler = logging.FileHandler('log/notifications.log')
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
 
 # Функция для проверки и отправки уведомлений
 async def check_notifications(context):
@@ -77,7 +54,9 @@ async def check_notifications(context):
                     await context.bot.send_message(
                         chat_id=user_id,
                         text=f"🔔 Напоминание: {message}"
-                    )                   
+                    )
+                    # Помечаем уведомление как отправленное, чтобы оно не отправлялось повторно
+                    mark_notification_as_sent(notification_id)                   
                     break  # Выходим из цикла попыток, если успешно
                 except Exception as e:
                     error_traceback = traceback.format_exc()
