@@ -102,27 +102,40 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                     if 'values' in sheet_result and len(sheet_result['values']) > 0:
                         values = sheet_result['values']
                         
-                        # Если есть заголовки, преобразуем данные в список словарей
-                        if len(values) > 1:
+                        # Если есть хотя бы заголовки
+                        if len(values) > 0:
                             headers = values[0]
                             
-                            for row_idx in range(1, len(values)):
-                                row = values[row_idx]
-                                row_dict = {"row_number": row_idx + 1}  # Добавляем номер строки
-                                
-                                # Создаем словарь, где ключи - заголовки, значения - данные
-                                for col_idx in range(min(len(headers), len(row))):
-                                    if headers[col_idx]:  # Проверяем, что заголовок не пустой
-                                        row_dict[headers[col_idx]] = row[col_idx]
-                                
-                                # Добавляем строку в результат
+                            # Если есть строки данных
+                            if len(values) > 1:
+                                for row_idx in range(1, len(values)):
+                                    row = values[row_idx]
+                                    row_dict = {"row_number": row_idx + 1}  # Добавляем номер строки
+                                    
+                                    # Создаем словарь, где ключи - заголовки, значения - данные
+                                    for col_idx in range(min(len(headers), len(row))):
+                                        if headers[col_idx]:  # Проверяем, что заголовок не пустой
+                                            row_dict[headers[col_idx]] = row[col_idx]
+                                    
+                                    # Добавляем строку в результат
+                                    sheet_data.append(row_dict)
+                            else:
+                                # Если есть только заголовки, но нет данных, добавляем пустой объект с заголовками
+                                # чтобы было понятно, что лист существует, но данных в нем нет
+                                row_dict = {"row_number": 1}
+                                for header in headers:
+                                    if header:
+                                        row_dict[header] = ""
                                 sheet_data.append(row_dict)
                     
-                    # Добавляем данные этого листа в общий результат, если есть данные
+                    # Добавляем данные этого листа в общий результат, даже если лист пустой
                     if sheet_data:
                         final_result.append(sheet_data)
+                    else:
+                        # Если в листе совсем нет данных, добавляем пустой объект
+                        final_result.append([{"row_number": 1, "empty_sheet": True}])
                 
-                # Если нет данных, возвращаем пустой список
+                # Проверяем, что у нас есть какие-то данные
                 if not final_result:
                     return []
                 

@@ -92,17 +92,28 @@ def google_test():
                 # Удаляем row_number из списка заголовков для отображения
                 if 'row_number' in headers:
                     headers.remove('row_number')
+                # Удаляем служебное поле empty_sheet, если оно есть
+                if 'empty_sheet' in headers:
+                    headers.remove('empty_sheet')
             
+            # Выводим заголовки листа
             header_str = ", ".join(headers)
             print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
             
-            # Выводим пример первой строки (если есть)
-            if sheet_data:
-                print(f"  Пример данных (первая строка):")
-                first_row = sheet_data[0]
-                for key, value in first_row.items():
-                    if key != "row_number":  # Пропускаем служебные поля
-                        print(f"    {key}: {value}")
+            # Выводим все строки данных в листе
+            print(f"  Данные листа:")
+            for row_idx, row_data in enumerate(sheet_data):
+                # Проверяем, не является ли это пустым листом
+                if 'empty_sheet' in row_data and row_data['empty_sheet']:
+                    print(f"    [Лист пустой, только заголовки]")
+                    continue
+                
+                # Выводим номер строки и все поля кроме служебных
+                row_number = row_data.get('row_number', row_idx + 1)
+                print(f"    Строка {row_number}:")
+                for key, value in row_data.items():
+                    if key not in ['row_number', 'empty_sheet']:  # Пропускаем служебные поля
+                        print(f"      {key}: {value}")
     else:
         print("Нет данных или произошла ошибка при получении данных из Google Sheets")
     
