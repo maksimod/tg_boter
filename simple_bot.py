@@ -21,9 +21,75 @@ def start():
 def google_test():
     auto_write_translated_message("Тестим...")
     result = google_sheets('get', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
-    print("result:")
-    print(result)
-    print("result end")
+    
+    # Примеры других операций (закомментированы, чтобы не менять данные при тестировании)
+    """
+    # Пример добавления новой строки
+    append_data = {
+        'стоимость': 4000,
+        'продолжительность сеанса (мин)': 90,
+        'стоимость с акцией': 3500,
+        'мин. количество сеансов для акции': 3,
+        'доп. информация об акции': 'Специальное предложение'
+    }
+    append_result = google_sheets('append', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', append_data)
+    print("Результат добавления:", append_result)
+    
+    # Пример обновления строки
+    update_data = {
+        'стоимость': 4000,
+        'стоимость с акцией': 3500,
+        'доп. информация об акции': 'Обновленное описание акции'
+    }
+    update_result = google_sheets('update', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', 'стоимость', update_data)
+    print("Результат обновления:", update_result)
+    
+    # Пример удаления строки
+    # Удаляем строку 3 (одну строку)
+    delete_result = google_sheets('delete', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM', 3, 1)
+    print("Результат удаления:", delete_result)
+    """
+    
+    # Выводим сжатый предпросмотр данных в консоль
+    print("\n=== Получены данные из Google Sheets ===")
+    spreadsheet_id = result.get("spreadsheetId", "Неизвестно")
+    spreadsheet_title = result.get("spreadsheetTitle", "Неизвестно")
+    print(f"ID таблицы: {spreadsheet_id}")
+    print(f"Название таблицы: {spreadsheet_title}")
+    
+    # Выводим информацию о каждом листе
+    print("\nСписок листов:")
+    for sheet_name, sheet_data in result.get("sheets", {}).items():
+        row_count = sheet_data.get("rowCount", 0)
+        column_count = sheet_data.get("columnCount", 0)
+        header_str = ", ".join(sheet_data.get("headers", []))
+        print(f"- {sheet_name}: {row_count} строк, {column_count} столбцов")
+        print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
+        
+        # Выводим пример первой строки (если есть)
+        rows = sheet_data.get("rows", [])
+        if rows:
+            print(f"  Пример данных (первая строка):")
+            first_row = rows[0]
+            for key, value in first_row.items():
+                if key != "_rowIndex":  # Пропускаем служебные поля
+                    print(f"    {key}: {value}")
+    
+    # Сохраняем полные данные в JSON-файл для программного использования
+    import json
+    import os
+    
+    # Создаем директорию для данных, если она не существует
+    os.makedirs("data", exist_ok=True)
+    
+    # Сохраняем данные в JSON-файл
+    json_path = "data/google_sheets_data.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+    
+    print(f"\nПолные данные сохранены в файл: {json_path}")
+    print("Этот формат удобен для программного использования и работы с нейросетями.")
+    print("=== Конец данных из Google Sheets ===\n")
 
 @callback("info")
 def info():

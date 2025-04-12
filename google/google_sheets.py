@@ -70,28 +70,70 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
         if operation == 'get':
             # Получаем метаданные таблицы, чтобы узнать все листы
             spreadsheet = sheets.get(spreadsheetId=sheet_id).execute()
-            all_sheets_data = []
+            result = {
+                "spreadsheetId": sheet_id,
+                "spreadsheetTitle": spreadsheet.get('properties', {}).get('title', ''),
+                "sheets": {}
+            }
             
             # Получаем все листы из таблицы
             sheet_list = spreadsheet.get('sheets', [])
             
             for sheet in sheet_list:
                 sheet_name = sheet['properties']['title']
+                sheet_id_value = sheet['properties']['sheetId']
                 
                 # Получаем данные для каждого листа
                 sheet_result = sheets.values().get(
                     spreadsheetId=sheet_id,
-                    range=f"'{sheet_name}'!A1:Z1000",  # Диапазон можно настроить
+                    range=f"'{sheet_name}'!A1:Z1000",
                     valueRenderOption='UNFORMATTED_VALUE',
                     dateTimeRenderOption='FORMATTED_STRING'
                 ).execute()
                 
                 # Проверяем наличие данных
-                if 'values' in sheet_result:
-                    # Добавляем данные листа в общий результат
-                    all_sheets_data.extend(sheet_result['values'])
+                if 'values' in sheet_result and len(sheet_result['values']) > 0:
+                    values = sheet_result['values']
+                    
+                    # Если есть заголовки, преобразуем данные в список словарей
+                    if len(values) > 1:
+                        headers = values[0]
+                        rows = []
+                        
+                        for row_idx in range(1, len(values)):
+                            row = values[row_idx]
+                            row_dict = {}
+                            
+                            # Создаем словарь, где ключи - заголовки, значения - данные
+                            for col_idx in range(min(len(headers), len(row))):
+                                if headers[col_idx]:  # Проверяем, что заголовок не пустой
+                                    row_dict[headers[col_idx]] = row[col_idx]
+                            
+                            # Добавляем служебную информацию
+                            row_dict["_rowIndex"] = row_idx + 1  # Индекс строки (начиная с 1, учитывая заголовок)
+                            
+                            # Добавляем строку в результат
+                            rows.append(row_dict)
+                        
+                        # Добавляем данные этого листа в общий результат
+                        result["sheets"][sheet_name] = {
+                            "sheetId": sheet_id_value,
+                            "headers": headers,
+                            "rows": rows,
+                            "rowCount": len(values),
+                            "columnCount": len(headers) if headers else 0
+                        }
+                    else:
+                        # Если данных нет или нет заголовков, добавляем пустой результат
+                        result["sheets"][sheet_name] = {
+                            "sheetId": sheet_id_value,
+                            "headers": values[0] if values else [],
+                            "rows": [],
+                            "rowCount": len(values),
+                            "columnCount": len(values[0]) if values and values[0] else 0
+                        }
             
-            return all_sheets_data if all_sheets_data else []
+            return result
                 
         elif operation == 'append':
             if len(args) < 1:
@@ -220,6 +262,11 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
             
             start_row = args[0]
             row_count = args[1]
+            sheet_id_param = 0  # По умолчанию используем первый лист (ID = 0)
+            
+            # Если передан четвертый аргумент - ID листа
+            if len(args) >= 3 and args[2] is not None:
+                sheet_id_param = args[2]
             
             if not isinstance(start_row, int) or not isinstance(row_count, int):
                 raise TypeError("Аргументы start_row и row_count должны быть целыми числами")
@@ -232,7 +279,7 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                         {
                             'deleteDimension': {
                                 'range': {
-                                    'sheetId': 0,  # ID листа в таблице (обычно 0 для первого листа)
+                                    'sheetId': sheet_id_param,  # ID листа в таблице
                                     'dimension': 'ROWS',
                                     'startIndex': start_row - 1,  # -1 потому что индексация с 0
                                     'endIndex': start_row - 1 + row_count
