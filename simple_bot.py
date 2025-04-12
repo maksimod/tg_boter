@@ -1,5 +1,9 @@
 from imports import *
 from utils import logger, chat_id, start_custom_survey
+import sys
+sys.path.append('.')  # Add current directory to path
+# Import the google_sheets function from our adapter
+from google_adapter import google_sheets
 
 @start
 def start():
@@ -52,28 +56,35 @@ def google_test():
     
     # Выводим сжатый предпросмотр данных в консоль
     print("\n=== Получены данные из Google Sheets ===")
-    spreadsheet_id = result.get("spreadsheetId", "Неизвестно")
-    spreadsheet_title = result.get("spreadsheetTitle", "Неизвестно")
-    print(f"ID таблицы: {spreadsheet_id}")
-    print(f"Название таблицы: {spreadsheet_title}")
     
-    # Выводим информацию о каждом листе
-    print("\nСписок листов:")
-    for sheet_name, sheet_data in result.get("sheets", {}).items():
-        row_count = sheet_data.get("rowCount", 0)
-        column_count = sheet_data.get("columnCount", 0)
-        header_str = ", ".join(sheet_data.get("headers", []))
-        print(f"- {sheet_name}: {row_count} строк, {column_count} столбцов")
-        print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
+    if isinstance(result, list) and len(result) > 0:
+        print(f"ID таблицы: 1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM")
         
-        # Выводим пример первой строки (если есть)
-        rows = sheet_data.get("rows", [])
-        if rows:
-            print(f"  Пример данных (первая строка):")
-            first_row = rows[0]
-            for key, value in first_row.items():
-                if key != "_rowIndex":  # Пропускаем служебные поля
-                    print(f"    {key}: {value}")
+        # Выводим информацию о каждом листе
+        print("\nСписок листов:")
+        for i, sheet_data in enumerate(result):
+            print(f"- Лист {i+1}: {len(sheet_data)} строк")
+            
+            # Получаем заголовки из первой записи, если она есть
+            headers = []
+            if sheet_data and len(sheet_data) > 0:
+                headers = list(sheet_data[0].keys())
+                # Удаляем row_number из списка заголовков для отображения
+                if 'row_number' in headers:
+                    headers.remove('row_number')
+            
+            header_str = ", ".join(headers)
+            print(f"  Заголовки: {header_str[:100]}" + ("..." if len(header_str) > 100 else ""))
+            
+            # Выводим пример первой строки (если есть)
+            if sheet_data:
+                print(f"  Пример данных (первая строка):")
+                first_row = sheet_data[0]
+                for key, value in first_row.items():
+                    if key != "row_number":  # Пропускаем служебные поля
+                        print(f"    {key}: {value}")
+    else:
+        print("Нет данных или произошла ошибка при получении данных из Google Sheets")
     
     # Сохраняем полные данные в JSON-файл для программного использования
     import json

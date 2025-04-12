@@ -51,11 +51,14 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
     
     Args:
         operation: Тип операции ('get', 'append', 'update', 'delete')
-        sheet_id: ID таблицы или листа
-        *args: Дополнительные аргументы в зависимости от операции
+        sheet_id: ID таблицы для 'get' или ID листа для остальных операций
+        *args: Дополнительные аргументы в зависимости от операции:
+            - 'append': dict с данными для добавления
+            - 'update': имя поля для идентификации, dict с данными для обновления
+            - 'delete': номер начальной строки, количество строк для удаления
     
     Returns:
-        Результат операции или None в случае ошибки
+        Результат операции в формате JSON или None в случае ошибки
     """
     service = get_service()
     if not service:
@@ -70,18 +73,15 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
         if operation == 'get':
             # Получаем метаданные таблицы, чтобы узнать все листы
             spreadsheet = sheets.get(spreadsheetId=sheet_id).execute()
-            result = {
-                "spreadsheetId": sheet_id,
-                "spreadsheetTitle": spreadsheet.get('properties', {}).get('title', ''),
-                "sheets": {}
-            }
             
             # Получаем все листы из таблицы
             sheet_list = spreadsheet.get('sheets', [])
             
+            # Финальный результат - список словарей с данными каждого листа
+            final_result = []
+            
             for sheet in sheet_list:
                 sheet_name = sheet['properties']['title']
-                sheet_id_value = sheet['properties']['sheetId']
                 
                 # Получаем данные для каждого листа
                 sheet_result = sheets.values().get(
@@ -91,6 +91,9 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                     dateTimeRenderOption='FORMATTED_STRING'
                 ).execute()
                 
+                # Список словарей для текущего листа
+                sheet_data = []
+                
                 # Проверяем наличие данных
                 if 'values' in sheet_result and len(sheet_result['values']) > 0:
                     values = sheet_result['values']
@@ -98,42 +101,30 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                     # Если есть заголовки, преобразуем данные в список словарей
                     if len(values) > 1:
                         headers = values[0]
-                        rows = []
                         
                         for row_idx in range(1, len(values)):
                             row = values[row_idx]
-                            row_dict = {}
+                            row_dict = {"row_number": row_idx + 1}  # Добавляем номер строки
                             
                             # Создаем словарь, где ключи - заголовки, значения - данные
                             for col_idx in range(min(len(headers), len(row))):
                                 if headers[col_idx]:  # Проверяем, что заголовок не пустой
                                     row_dict[headers[col_idx]] = row[col_idx]
                             
-                            # Добавляем служебную информацию
-                            row_dict["_rowIndex"] = row_idx + 1  # Индекс строки (начиная с 1, учитывая заголовок)
-                            
                             # Добавляем строку в результат
-                            rows.append(row_dict)
-                        
-                        # Добавляем данные этого листа в общий результат
-                        result["sheets"][sheet_name] = {
-                            "sheetId": sheet_id_value,
-                            "headers": headers,
-                            "rows": rows,
-                            "rowCount": len(values),
-                            "columnCount": len(headers) if headers else 0
-                        }
-                    else:
-                        # Если данных нет или нет заголовков, добавляем пустой результат
-                        result["sheets"][sheet_name] = {
-                            "sheetId": sheet_id_value,
-                            "headers": values[0] if values else [],
-                            "rows": [],
-                            "rowCount": len(values),
-                            "columnCount": len(values[0]) if values and values[0] else 0
-                        }
+                            sheet_data.append(row_dict)
+                
+                # Добавляем данные этого листа в общий результат
+                if sheet_data:
+                    final_result.append(sheet_data)
             
-            return result
+            # Формируем итоговую строку в соответствии с требуемым форматом
+            result_json = json.dumps(final_result, ensure_ascii=False)
+            
+            # Заменяем разделители листов на требуемый формат
+            result_json = result_json.replace('], [', '];[')
+            
+            return json.loads(result_json) 
                 
         elif operation == 'append':
             if len(args) < 1:
@@ -143,11 +134,28 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
             if not isinstance(row_data, dict):
                 raise TypeError("Аргумент row_data должен быть словарем")
             
+            # Получаем информацию о таблице, чтобы найти нужный лист по ID
+            spreadsheet_info = sheets.get(spreadsheetId=sheet_id).execute()
+            sheet_found = False
+            sheet_name = None
+            
+            for sheet in spreadsheet_info.get('sheets', []):
+                if str(sheet['properties']['sheetId']) == str(sheet_id):
+                    sheet_name = sheet['properties']['title']
+                    sheet_found = True
+                    break
+            
+            if not sheet_found:
+                raise ValueError(f"Лист с ID {sheet_id} не найден в таблице")
+            
+            # Получаем ID таблицы (родительский элемент для листа)
+            spreadsheet_id = spreadsheet_info['spreadsheetId']
+            
             # Преобразуем словарь в список значений
             # Предполагается, что первая строка таблицы содержит заголовки столбцов
             header_result = sheets.values().get(
-                spreadsheetId=sheet_id,
-                range='A1:Z1'  # Получаем только первую строку для заголовков
+                spreadsheetId=spreadsheet_id,
+                range=f"'{sheet_name}'!A1:Z1"  # Получаем только первую строку для заголовков
             ).execute()
             
             if 'values' not in header_result or not header_result['values']:
@@ -170,8 +178,8 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
             
             # Добавляем строку в таблицу
             result = sheets.values().append(
-                spreadsheetId=sheet_id,
-                range='A1',  # Начинаем с первой ячейки
+                spreadsheetId=spreadsheet_id,
+                range=f"'{sheet_name}'!A1",  # Начинаем с первой ячейки
                 valueInputOption='RAW',
                 insertDataOption='INSERT_ROWS',
                 body={
@@ -194,10 +202,27 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
             if id_field not in row_data:
                 raise ValueError(f"Идентификационное поле {id_field} должно быть в row_data")
             
+            # Получаем информацию о таблице, чтобы найти нужный лист по ID
+            spreadsheet_info = sheets.get(spreadsheetId=sheet_id).execute()
+            sheet_found = False
+            sheet_name = None
+            
+            for sheet in spreadsheet_info.get('sheets', []):
+                if str(sheet['properties']['sheetId']) == str(sheet_id):
+                    sheet_name = sheet['properties']['title']
+                    sheet_found = True
+                    break
+            
+            if not sheet_found:
+                raise ValueError(f"Лист с ID {sheet_id} не найден в таблице")
+            
+            # Получаем ID таблицы (родительский элемент для листа)
+            spreadsheet_id = spreadsheet_info['spreadsheetId']
+            
             # Получаем все данные из таблицы
             result = sheets.values().get(
-                spreadsheetId=sheet_id,
-                range='A1:Z1000'  # Диапазон можно настроить
+                spreadsheetId=spreadsheet_id,
+                range=f"'{sheet_name}'!A1:Z1000"  # Диапазон можно настроить
             ).execute()
             
             if 'values' not in result or len(result['values']) < 2:
@@ -244,9 +269,9 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
                         updated_row.append("")
             
             # Обновляем строку в таблице
-            range_to_update = f'A{row_index + 1}:{chr(65 + len(headers) - 1)}{row_index + 1}'
+            range_to_update = f"'{sheet_name}'!A{row_index + 1}:{chr(65 + len(headers) - 1)}{row_index + 1}"
             result = sheets.values().update(
-                spreadsheetId=sheet_id,
+                spreadsheetId=spreadsheet_id,
                 range=range_to_update,
                 valueInputOption='RAW',
                 body={
@@ -262,18 +287,30 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
             
             start_row = args[0]
             row_count = args[1]
-            sheet_id_param = 0  # По умолчанию используем первый лист (ID = 0)
-            
-            # Если передан четвертый аргумент - ID листа
-            if len(args) >= 3 and args[2] is not None:
-                sheet_id_param = args[2]
             
             if not isinstance(start_row, int) or not isinstance(row_count, int):
                 raise TypeError("Аргументы start_row и row_count должны быть целыми числами")
             
+            # Получаем информацию о таблице, чтобы найти нужный лист по ID
+            spreadsheet_info = sheets.get(spreadsheetId=sheet_id).execute()
+            sheet_found = False
+            sheet_id_param = None
+            
+            for sheet in spreadsheet_info.get('sheets', []):
+                if str(sheet['properties']['sheetId']) == str(sheet_id):
+                    sheet_id_param = sheet['properties']['sheetId']
+                    sheet_found = True
+                    break
+            
+            if not sheet_found:
+                raise ValueError(f"Лист с ID {sheet_id} не найден в таблице")
+            
+            # Получаем ID таблицы (родительский элемент для листа)
+            spreadsheet_id = spreadsheet_info['spreadsheetId']
+            
             # В Google Sheets API для удаления строк нужно использовать batchUpdate
             result = sheets.batchUpdate(
-                spreadsheetId=sheet_id,
+                spreadsheetId=spreadsheet_id,
                 body={
                     'requests': [
                         {
@@ -299,6 +336,7 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
         logging.error(f"Ошибка при работе с Google Sheets: {e}")
         return None
 
+# Оставляем для обратной совместимости
 async def get_sheets(spreadsheet_id: str, need_sheet: Optional[str] = None) -> Optional[List[List[Any]]]:
     """
     Получает данные из Google Sheets через API (асинхронная версия).
