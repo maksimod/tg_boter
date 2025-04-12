@@ -1,8 +1,8 @@
 import os
 import json
 import logging
-import aiohttp
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
+import requests
 
 # Глобальная переменная для хранения URL API
 _api_url = None
@@ -49,9 +49,112 @@ def load_api_key():
     logging.warning("API URL для Google Sheets не найден. Функция будет недоступна.")
     return False
 
+def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
+    """
+    Универсальная функция для работы с Google Sheets.
+    
+    Args:
+        operation: Тип операции ('get', 'append', 'update', 'delete')
+        sheet_id: ID таблицы или листа
+        *args: Дополнительные аргументы в зависимости от операции
+    
+    Returns:
+        Результат операции или None в случае ошибки
+    """
+    if not _api_url:
+        if not load_api_key():
+            logging.error("API URL не найден. Невозможно выполнить запрос.")
+            return None
+    
+    try:
+        # Базовый набор данных для запроса
+        data = {
+            "operation": operation,
+            "sheet_id": sheet_id
+        }
+        
+        # Добавляем дополнительные параметры в зависимости от операции
+        if operation == 'get':
+            # Для get не требуется дополнительных параметров
+            pass
+        elif operation == 'append':
+            if len(args) < 1:
+                raise ValueError("Для операции 'append' требуется словарь данных")
+            data["row_data"] = args[0]
+        elif operation == 'update':
+            if len(args) < 2:
+                raise ValueError("Для операции 'update' требуется имя поля для идентификации и словарь данных")
+            data["id_field"] = args[0]
+            data["row_data"] = args[1]
+        elif operation == 'delete':
+            if len(args) < 2:
+                raise ValueError("Для операции 'delete' требуется номер начальной строки и количество строк")
+            data["start_row"] = args[0]
+            data["row_count"] = args[1]
+        else:
+            raise ValueError(f"Неподдерживаемая операция: {operation}")
+        
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        logging.info(f"Отправка запроса к API Google Sheets: {_api_url}")
+        logging.info(f"Операция: {operation}, ID: {sheet_id}")
+        
+        # Синхронный запрос
+        response = requests.post(
+            _api_url,
+            headers=headers,
+            json=data
+        )
+        
+        if response.status_code != 200:
+            logging.error(f"Ошибка API ({response.status_code}): {response.text}")
+            return None
+        
+        # Получаем ответ
+        response_text = response.text
+        logging.debug(f"Ответ от API: {response_text[:200]}...")  # Выводим первые 200 символов ответа
+        
+        try:
+            # Пробуем распарсить JSON
+            result = json.loads(response_text)
+            
+            # Проверяем разные варианты полей в ответе
+            if isinstance(result, list):
+                # Если ответ сразу пришел как список, возвращаем его
+                return result
+            elif isinstance(result, dict):
+                # Ищем данные в различных полях JSON
+                if "data" in result:
+                    return result["data"]
+                elif "values" in result:
+                    return result["values"]
+                elif "result" in result:
+                    return result["result"]
+                elif "rows" in result:
+                    return result["rows"]
+                elif "success" in result:
+                    return result["success"]
+                else:
+                    # Если не нашли известных полей, возвращаем весь словарь
+                    logging.warning(f"Неизвестный формат ответа: {result}")
+                    return result
+            else:
+                logging.warning(f"Неизвестный формат ответа: {result}")
+                return None
+        except json.JSONDecodeError:
+            logging.error(f"Не удалось распарсить JSON: {response_text[:100]}...")
+            return None
+                
+    except Exception as e:
+        logging.error(f"Ошибка при вызове API Google Sheets: {e}")
+        return None
+
 async def get_sheets(spreadsheet_id: str, need_sheet: Optional[str] = None) -> Optional[List[List[Any]]]:
     """
-    Получает данные из Google Sheets через API.
+    Получает данные из Google Sheets через API (асинхронная версия).
+    Оставлена для обратной совместимости.
     
     Args:
         spreadsheet_id: ID таблицы Google Sheets
@@ -60,73 +163,8 @@ async def get_sheets(spreadsheet_id: str, need_sheet: Optional[str] = None) -> O
     Returns:
         Данные из таблицы или None в случае ошибки
     """
-    if not _api_url:
-        if not load_api_key():
-            logging.error("API URL не найден. Невозможно выполнить запрос.")
-            return None
-    
-    try:
-        # Настраиваем запрос к API
-        data = {
-            "spreadsheet_id": spreadsheet_id
-        }
-        
-        # Добавляем need_sheet, если указано
-        if need_sheet:
-            data["need_sheet"] = need_sheet
-        
-        headers = {
-            "Content-Type": "application/json"
-        }
-        
-        print(f"Отправка запроса к API Google Sheets: {_api_url}")
-        print(f"Параметры: spreadsheet_id={spreadsheet_id}, need_sheet={need_sheet}")
-        
-        async with aiohttp.ClientSession() as session:
-            async with session.post(_api_url, 
-                                  headers=headers, 
-                                  json=data) as response:
-                if response.status != 200:
-                    error_text = await response.text()
-                    print(f"Ошибка API ({response.status}): {error_text}")
-                    return None
-                
-                # Получаем ответ
-                response_text = await response.text()
-                print(f"Ответ от API: {response_text[:200]}...")  # Выводим первые 200 символов ответа
-                
-                try:
-                    # Пробуем распарсить JSON
-                    result = json.loads(response_text)
-                    
-                    # Проверяем разные варианты полей в ответе
-                    if isinstance(result, list):
-                        # Если ответ сразу пришел как список, возвращаем его
-                        return result
-                    elif isinstance(result, dict):
-                        # Ищем данные в различных полях JSON
-                        if "data" in result:
-                            return result["data"]
-                        elif "values" in result:
-                            return result["values"]
-                        elif "result" in result:
-                            return result["result"]
-                        elif "rows" in result:
-                            return result["rows"]
-                        else:
-                            # Если не нашли известных полей, возвращаем весь словарь
-                            print(f"Неизвестный формат ответа: {result}")
-                            return result
-                    else:
-                        print(f"Неизвестный формат ответа: {result}")
-                        return None
-                except json.JSONDecodeError:
-                    print(f"Не удалось распарсить JSON: {response_text[:100]}...")
-                    return None
-                    
-    except Exception as e:
-        print(f"Ошибка при вызове API Google Sheets: {e}")
-        return None
+    # Прямой вызов синхронной функции
+    return google_sheets('get', spreadsheet_id)
 
 # Загружаем API ключ при импорте модуля
 load_api_key() 

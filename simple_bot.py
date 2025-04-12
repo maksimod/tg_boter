@@ -20,10 +20,10 @@ def start():
 @callback("google_test")
 def google_test():
     auto_write_translated_message("Тестим...")
-    async def get_google_data(): 
-        result = await google_sheets('1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
-        print(result)
-    asyncio.create_task(get_google_data())
+    result = google_sheets('get', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
+    print("result")
+    print(result)
+    print("result end")
 
 @callback("info")
 def info():
