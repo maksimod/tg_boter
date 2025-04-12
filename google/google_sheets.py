@@ -200,31 +200,78 @@ def google_sheets(operation: str, spreadsheet_id: str, *args) -> Optional[Any]:
                 logging.error(f"Ошибка при получении заголовков: {e}")
                 return None
             
-            # Создаем список значений в том же порядке, что и заголовки
-            values = []
-            for header in headers:
-                if header in row_data:
-                    # Если значение является списком или словарем, преобразуем его в JSON
-                    if isinstance(row_data[header], (dict, list)):
-                        values.append(json.dumps(row_data[header]))
-                    else:
-                        values.append(row_data[header])
-                else:
-                    values.append("")  # Пустое значение для отсутствующих полей
-            
-            # Добавляем строку в таблицу
+            # Вместо заполнения всех полей, создаем данные только для указанных полей, исключая колонку A
             try:
-                result = sheets.values().append(
+                # Создаем словарь индексов заголовков
+                header_indices = {header: idx for idx, header in enumerate(headers)}
+                
+                # Отфильтровываем указанные поля, которые существуют в заголовках
+                valid_fields = {}
+                for field, value in row_data.items():
+                    if field in header_indices:
+                        valid_fields[field] = value
+                
+                if not valid_fields:
+                    logging.error("Ни одно из указанных полей не найдено в заголовках таблицы")
+                    return None
+                
+                # Получаем текущее количество строк в листе, чтобы добавить новую строку в конец
+                sheet_data = sheets.values().get(
                     spreadsheetId=spreadsheet_id,
-                    range=f"'{sheet_name}'!A1",  # Начинаем с первой ячейки
+                    range=f"'{sheet_name}'!A:A",  # Проверяем только колонку A для определения количества строк
+                ).execute()
+                
+                row_count = 1  # Минимум 1 строка (строка заголовков)
+                if 'values' in sheet_data:
+                    row_count = len(sheet_data['values']) + 1  # +1 для новой строки
+                
+                # Создаем запросы на обновление отдельных ячеек
+                data = []
+                for field, value in valid_fields.items():
+                    if field in headers:
+                        col_index = headers.index(field)
+                        if col_index == 0:
+                            # Пропускаем колонку A
+                            continue
+                            
+                        col_letter = chr(65 + col_index)  # A=65, B=66, ...
+                        
+                        # Обработка значений списков и словарей
+                        if isinstance(value, (dict, list)):
+                            value = json.dumps(value)
+                            
+                        # Добавляем данные для конкретной ячейки
+                        data.append({
+                            'range': f"'{sheet_name}'!{col_letter}{row_count}",
+                            'values': [[value]]
+                        })
+                
+                # Добавляем пустую строку и затем обновляем нужные ячейки
+                # Сначала добавляем пустую строку
+                sheets.values().append(
+                    spreadsheetId=spreadsheet_id,
+                    range=f"'{sheet_name}'!B{row_count}",  # Начиная с B, чтобы не трогать A
                     valueInputOption='RAW',
                     insertDataOption='INSERT_ROWS',
                     body={
-                        'values': [values]
+                        'values': [[""]]  # Пустая строка
                     }
                 ).execute()
                 
-                return {'success': True, 'result': result}
+                # Затем обновляем только нужные ячейки
+                if data:
+                    result = sheets.values().batchUpdate(
+                        spreadsheetId=spreadsheet_id,
+                        body={
+                            'valueInputOption': 'RAW',
+                            'data': data
+                        }
+                    ).execute()
+                    
+                    return {'success': True, 'result': result}
+                else:
+                    return {'success': True, 'message': 'Строка добавлена, но нет данных для обновления'}
+                    
             except Exception as e:
                 logging.error(f"Ошибка при добавлении данных: {e}")
                 return None
@@ -293,23 +340,21 @@ def google_sheets(operation: str, spreadsheet_id: str, *args) -> Optional[Any]:
                     logging.error(f"Не найдена строка с {id_field}={id_value}")
                     return None
                 
-                # Создаем обновленную строку
-                updated_row = []
-                for header in headers:
-                    if header in row_data:
-                        # Если значение является списком или словарем, преобразуем его в JSON
-                        if isinstance(row_data[header], (dict, list)):
-                            updated_row.append(json.dumps(row_data[header]))
-                        else:
-                            updated_row.append(row_data[header])
-                    else:
-                        # Находим индекс текущего заголовка
+                # Создаем обновленную строку, копируя существующие данные
+                updated_row = list(data_rows[row_index - 1])
+                # Расширяем список до длины заголовков, если необходимо
+                while len(updated_row) < len(headers):
+                    updated_row.append("")
+                
+                # Обновляем только указанные поля
+                for header, value in row_data.items():
+                    if header in headers:
                         header_index = headers.index(header)
-                        # Используем существующее значение, если оно есть
-                        if len(data_rows[row_index - 1]) > header_index:
-                            updated_row.append(data_rows[row_index - 1][header_index])
+                        # Если значение является списком или словарем, преобразуем его в JSON
+                        if isinstance(value, (dict, list)):
+                            updated_row[header_index] = json.dumps(value)
                         else:
-                            updated_row.append("")
+                            updated_row[header_index] = value
                 
                 # Обновляем строку в таблице
                 range_to_update = f"'{sheet_name}'!A{row_index + 1}:{chr(65 + len(headers) - 1)}{row_index + 1}"
