@@ -340,34 +340,41 @@ def google_sheets(operation: str, spreadsheet_id: str, *args) -> Optional[Any]:
                     logging.error(f"Не найдена строка с {id_field}={id_value}")
                     return None
                 
-                # Создаем обновленную строку, копируя существующие данные
-                updated_row = list(data_rows[row_index - 1])
-                # Расширяем список до длины заголовков, если необходимо
-                while len(updated_row) < len(headers):
-                    updated_row.append("")
-                
-                # Обновляем только указанные поля
+                # Создаем запросы на обновление отдельных ячеек
+                data = []
                 for header, value in row_data.items():
+                    # Пропускаем идентификационное поле, чтобы не обновлять его
+                    if header == id_field:
+                        continue
+                        
                     if header in headers:
-                        header_index = headers.index(header)
-                        # Если значение является списком или словарем, преобразуем его в JSON
+                        col_index = headers.index(header)
+                        col_letter = chr(65 + col_index)  # A=65, B=66, ...
+                        
+                        # Обработка значений списков и словарей
                         if isinstance(value, (dict, list)):
-                            updated_row[header_index] = json.dumps(value)
-                        else:
-                            updated_row[header_index] = value
+                            value = json.dumps(value)
+                            
+                        # Добавляем данные для конкретной ячейки
+                        data.append({
+                            'range': f"'{sheet_name}'!{col_letter}{row_index + 1}",
+                            'values': [[value]]
+                        })
                 
-                # Обновляем строку в таблице
-                range_to_update = f"'{sheet_name}'!A{row_index + 1}:{chr(65 + len(headers) - 1)}{row_index + 1}"
-                result = sheets.values().update(
-                    spreadsheetId=spreadsheet_id,
-                    range=range_to_update,
-                    valueInputOption='RAW',
-                    body={
-                        'values': [updated_row]
-                    }
-                ).execute()
-                
-                return {'success': True, 'result': result}
+                # Обновляем только нужные ячейки
+                if data:
+                    result = sheets.values().batchUpdate(
+                        spreadsheetId=spreadsheet_id,
+                        body={
+                            'valueInputOption': 'RAW',
+                            'data': data
+                        }
+                    ).execute()
+                    
+                    return {'success': True, 'result': result}
+                else:
+                    return {'success': True, 'message': 'Нет данных для обновления или указано только идентификационное поле'}
+                    
             except Exception as e:
                 logging.error(f"Ошибка при обновлении данных: {e}")
                 return None
