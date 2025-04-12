@@ -30,7 +30,7 @@ def google_test():
     # Пример операции 'get' - получение данных из таблицы
     # Первый аргумент: 'get' - тип операции
     # Второй аргумент: ID таблицы
-    update_result = google_sheets('update', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', 'id', {"id":5,"Имя": "Антон", "Оценка": "10"})
+    update_result = google_sheets('delete', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10', '1297152652', 3, 1)
     print(update_result)
     # Примеры других операций (закомментированы, чтобы не менять данные при тестировании)
     """
