@@ -68,18 +68,30 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
         
         # Выполняем операцию в зависимости от типа
         if operation == 'get':
-            # Получаем данные из таблицы
-            # sheet_id - это ID таблицы
-            result = sheets.values().get(
-                spreadsheetId=sheet_id,
-                range='A1:Z1000'  # Диапазон можно настроить
-            ).execute()
+            # Получаем метаданные таблицы, чтобы узнать все листы
+            spreadsheet = sheets.get(spreadsheetId=sheet_id).execute()
+            all_sheets_data = []
             
-            # Проверяем наличие данных
-            if 'values' in result:
-                return result['values']
-            else:
-                return []
+            # Получаем все листы из таблицы
+            sheet_list = spreadsheet.get('sheets', [])
+            
+            for sheet in sheet_list:
+                sheet_name = sheet['properties']['title']
+                
+                # Получаем данные для каждого листа
+                sheet_result = sheets.values().get(
+                    spreadsheetId=sheet_id,
+                    range=f"'{sheet_name}'!A1:Z1000",  # Диапазон можно настроить
+                    valueRenderOption='UNFORMATTED_VALUE',
+                    dateTimeRenderOption='FORMATTED_STRING'
+                ).execute()
+                
+                # Проверяем наличие данных
+                if 'values' in sheet_result:
+                    # Добавляем данные листа в общий результат
+                    all_sheets_data.extend(sheet_result['values'])
+            
+            return all_sheets_data if all_sheets_data else []
                 
         elif operation == 'append':
             if len(args) < 1:
