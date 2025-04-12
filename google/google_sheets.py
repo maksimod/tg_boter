@@ -71,60 +71,77 @@ def google_sheets(operation: str, sheet_id: str, *args) -> Optional[Any]:
         
         # Выполняем операцию в зависимости от типа
         if operation == 'get':
-            # Получаем метаданные таблицы, чтобы узнать все листы
-            spreadsheet = sheets.get(spreadsheetId=sheet_id).execute()
-            
-            # Получаем все листы из таблицы
-            sheet_list = spreadsheet.get('sheets', [])
-            
-            # Финальный результат - список словарей с данными каждого листа
-            final_result = []
-            
-            for sheet in sheet_list:
-                sheet_name = sheet['properties']['title']
+            try:
+                # Получаем метаданные таблицы, чтобы узнать все листы
+                spreadsheet = sheets.get(spreadsheetId=sheet_id).execute()
                 
-                # Получаем данные для каждого листа
-                sheet_result = sheets.values().get(
-                    spreadsheetId=sheet_id,
-                    range=f"'{sheet_name}'!A1:Z1000",
-                    valueRenderOption='UNFORMATTED_VALUE',
-                    dateTimeRenderOption='FORMATTED_STRING'
-                ).execute()
+                # Получаем все листы из таблицы
+                sheet_list = spreadsheet.get('sheets', [])
                 
-                # Список словарей для текущего листа
-                sheet_data = []
+                # Массив всех листов для результата
+                final_result = []
                 
-                # Проверяем наличие данных
-                if 'values' in sheet_result and len(sheet_result['values']) > 0:
-                    values = sheet_result['values']
+                for i, sheet in enumerate(sheet_list):
+                    sheet_name = sheet['properties']['title']
                     
-                    # Если есть заголовки, преобразуем данные в список словарей
-                    if len(values) > 1:
-                        headers = values[0]
+                    # Получаем данные для текущего листа
+                    try:
+                        sheet_result = sheets.values().get(
+                            spreadsheetId=sheet_id,
+                            range=f"'{sheet_name}'!A1:Z1000",
+                            valueRenderOption='UNFORMATTED_VALUE',
+                            dateTimeRenderOption='FORMATTED_STRING'
+                        ).execute()
+                    except Exception as e:
+                        continue
+                    
+                    # Список словарей для текущего листа
+                    sheet_data = []
+                    
+                    # Проверяем наличие данных
+                    if 'values' in sheet_result and len(sheet_result['values']) > 0:
+                        values = sheet_result['values']
                         
-                        for row_idx in range(1, len(values)):
-                            row = values[row_idx]
-                            row_dict = {"row_number": row_idx + 1}  # Добавляем номер строки
+                        # Если есть заголовки, преобразуем данные в список словарей
+                        if len(values) > 1:
+                            headers = values[0]
                             
-                            # Создаем словарь, где ключи - заголовки, значения - данные
-                            for col_idx in range(min(len(headers), len(row))):
-                                if headers[col_idx]:  # Проверяем, что заголовок не пустой
-                                    row_dict[headers[col_idx]] = row[col_idx]
-                            
-                            # Добавляем строку в результат
-                            sheet_data.append(row_dict)
+                            for row_idx in range(1, len(values)):
+                                row = values[row_idx]
+                                row_dict = {"row_number": row_idx + 1}  # Добавляем номер строки
+                                
+                                # Создаем словарь, где ключи - заголовки, значения - данные
+                                for col_idx in range(min(len(headers), len(row))):
+                                    if headers[col_idx]:  # Проверяем, что заголовок не пустой
+                                        row_dict[headers[col_idx]] = row[col_idx]
+                                
+                                # Добавляем строку в результат
+                                sheet_data.append(row_dict)
+                    
+                    # Добавляем данные этого листа в общий результат, если есть данные
+                    if sheet_data:
+                        final_result.append(sheet_data)
                 
-                # Добавляем данные этого листа в общий результат
-                if sheet_data:
-                    final_result.append(sheet_data)
-            
-            # Формируем итоговую строку в соответствии с требуемым форматом
-            result_json = json.dumps(final_result, ensure_ascii=False)
-            
-            # Заменяем разделители листов на требуемый формат
-            result_json = result_json.replace('], [', '];[')
-            
-            return json.loads(result_json) 
+                # Если нет данных, возвращаем пустой список
+                if not final_result:
+                    return []
+                
+                # Если есть только один лист, просто возвращаем его данные
+                if len(final_result) == 1:
+                    return final_result[0]
+                
+                # Для нескольких листов возвращаем строку с разделителями
+                result_string = ""
+                for i, sheet_data in enumerate(final_result):
+                    if i > 0:
+                        result_string += ";"
+                    result_string += json.dumps(sheet_data, ensure_ascii=False)
+                
+                return result_string
+                
+            except Exception as e:
+                logging.error(f"Ошибка при получении данных из Google Sheets: {e}")
+                return None
                 
         elif operation == 'append':
             if len(args) < 1:

@@ -23,8 +23,11 @@ def start():
 
 @callback("google_test")
 def google_test():
+    import json
+    import os
+    
     auto_write_translated_message("Тестим...")
-    result = google_sheets('get', '1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM')
+    result = google_sheets('get', '1kRMu66PwqvwluCnL8Wa5TT2YaoXVe2eJ3QzDdF_Yf10')
     
     # Примеры других операций (закомментированы, чтобы не менять данные при тестировании)
     """
@@ -57,12 +60,29 @@ def google_test():
     # Выводим сжатый предпросмотр данных в консоль
     print("\n=== Получены данные из Google Sheets ===")
     
-    if isinstance(result, list) and len(result) > 0:
-        print(f"ID таблицы: 1XES1siX-OZC6D0vDeElcC1kJ0ZbsEU0j4Tj3n1BzEFM")
+    # Проверяем наличие данных
+    if result:        
+        # Преобразуем данные в список листов в зависимости от формата результата
+        sheets_data = []
+        
+        # Если результат - строка, то это несколько листов, разделенных ";"
+        if isinstance(result, str):
+            # Разбиваем строку по разделителям
+            sheets_parts = result.split(";")
+            for sheet_json in sheets_parts:
+                try:
+                    # Преобразуем каждую часть в JSON
+                    sheet_data = json.loads(sheet_json)
+                    sheets_data.append(sheet_data)
+                except json.JSONDecodeError:
+                    continue
+        else:
+            # Если результат - список, то это один лист
+            sheets_data.append(result)
         
         # Выводим информацию о каждом листе
-        print("\nСписок листов:")
-        for i, sheet_data in enumerate(result):
+        print(f"\nКоличество листов: {len(sheets_data)}")
+        for i, sheet_data in enumerate(sheets_data):
             print(f"- Лист {i+1}: {len(sheet_data)} строк")
             
             # Получаем заголовки из первой записи, если она есть
@@ -87,8 +107,6 @@ def google_test():
         print("Нет данных или произошла ошибка при получении данных из Google Sheets")
     
     # Сохраняем полные данные в JSON-файл для программного использования
-    import json
-    import os
     
     # Создаем директорию для данных, если она не существует
     os.makedirs("data", exist_ok=True)
